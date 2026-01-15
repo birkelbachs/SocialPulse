@@ -1,0 +1,2040 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- Page metadata + stylesheet for shared UI styling -->
+  <meta charset="utf-8" />
+  <title>ICWSM Demo.html</title>
+  <link rel="stylesheet" href="static/demo.css"/>
+  <meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+</head>
+
+<body>
+<!-- ======================================================================
+     Sticky top navigation bar:
+     - subreddit multi-select input (tag UI)
+     - Analyze dropdown (modes: include bots / remove bots / with images)
+     - status/spinner
+     - settings and PDF export buttons
+     ====================================================================== -->
+<header class="topbar">
+  <div class="toolbar">
+    <label for="subInput" class="sr-only">Enter subreddit</label>
+
+    <!-- Multi-subreddit tag input:
+         - #subTags holds rendered "pill" tags
+         - #subInput is the text field used to add new tags -->
+    <div id="subTagWrap" style="display:flex; flex-wrap:wrap; gap:6px; align-items:center; padding:6px 10px; border:1px solid rgba(148,163,184,0.5); border-radius:10px; background:rgba(15,23,42,0.35); min-width:320px;">
+      <div id="subTags" style="display:flex; flex-wrap:wrap; gap:6px;"></div>
+      <input id="subInput"
+             placeholder="Add subreddits"
+             style="border:none; outline:none; background:transparent; min-width:180px; padding:6px 4px; flex:1;" />
+    </div>
+    
+    <!-- Analyze dropdown:
+         Clicking Analyze toggles the menu, and each item triggers a different analysis mode -->
+    <div class="dropdown" style="position:relative; display:inline-block;">
+      <button id="analyzeBtn" class="dataset-select">
+        Analyze
+        <span style="font-size:10px; margin-left:4px;">▼</span>
+      </button>
+
+      <div id="analyzeMenu"
+           style="
+             display:none;
+             position:absolute;
+             background:var(--panel);
+             border:1px solid rgba(148,163,184,0.5);
+             border-radius:6px;
+             min-width:180px;
+             padding:4px 0;
+             z-index:20;
+           ">
+        <!-- Default analysis: include all posts (no bot filtering) -->
+        <button id="analyzeIncludeBots"
+                class="dataset-select"
+                style="display:block;width:100%;text-align:left;border:none;background:none;padding:6px 10px;font-size:13px;"
+                data-mode="normal">
+          Analyze (include all posts)
+        </button>
+
+        <!-- Bot-filtered analysis: removes suspected bots via BotBuster heuristic -->
+        <button id="analyzeNoBots"
+                class="dataset-select"
+                style="display:block;width:100%;text-align:left;border:none;background:none;padding:6px 10px;font-size:13px;"
+                data-mode="no-bots">
+          Analyze without bots
+        </button>
+
+        <!-- Image-augmented analysis: captions images (extra tokens) before topic modeling -->
+        <button id="analyzeWithImages"
+                class="dataset-select"
+                style="display:block;width:100%;text-align:left;border:none;background:none;padding:6px 10px;font-size:13px;white-space:normal;line-height:1.3;"
+                data-mode="with-images">
+          Analyze with image descriptions
+          <span style="display:block;font-size:11px;opacity:0.8;margin-top:2px;">
+            (uses extra OpenAI tokens for image captioning)
+          </span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Small status area used while analysis is running -->
+    <div id="status"
+         style="display:inline-flex; align-items:center; gap:8px;">
+      <div id="spinner" style="display:none;">🔄</div>
+      <div id="msg" style="font-size:13px;color:var(--accent-2)"></div>
+    </div>
+
+    <!-- Link to settings/tweaks page -->
+    <button id="tweakBtn" class="dataset-select">
+      Not satisfied with your results?
+    </button>
+
+    <!-- Export current selection to PDF (opens /export in new tab) -->
+    <button id="downloadReportBtn" class="rep-toggle-btn" style="margin-left:auto;">
+      Download report (PDF)
+    </button>
+  </div>
+</header>
+
+<main class="content">
+  <!-- ======================================================================
+       Welcome panel shown initially (hidden when analysis results are shown)
+       ====================================================================== -->
+  <div id="welcomePanel" class="welcome-panel">
+    <h2>Welcome to SocialPulse!</h2>
+    <p>
+      Enter a subreddit (without the leading <code>r/</code>) or multiple subreddits in the search bar above
+      and click <strong>Analyze</strong> to generate an analytics dashboard and BERTopic breakdown. 
+      You can also explore cross-subreddit content overlap, user activity patterns, botbuster-powered bot 
+      detection and filtering, and emerging topic insights.
+    </p>
+    <p class="small">
+      <strong>Content Notice:</strong>
+      This website analyzes and displays public content pulled directly from Reddit. As a result, we cannot 
+      control or filter all material shown on the site. Some posts, language, or topics may be sensitive, 
+      offensive, or disturbing. Viewer discretion is advised. 
+    </p>
+  </div>
+
+  <!-- ======================================================================
+       Analysis area (hidden until user runs analysis)
+       Contains:
+       - cross-subreddit comparison dashboard
+       - single-subreddit dashboard
+       - multi-subreddit per-subreddit results container
+       - BERTopic iframe chart
+       ====================================================================== -->
+  <section id="analysisArea" style="display:none;">
+
+    <!-- Cross-subreddit comparison section (only visible in multi mode) -->
+    <section id="compareArea" class="dashboard" style="display:none;">
+      <div class="card" style="padding:16px; background:var(--bg-2); border-radius:12px; margin-bottom:12px;">
+        <h2 style="margin-top:0;">Cross-subreddit Comparison</h2>
+        <p style="opacity:0.7;font-size:13px;">
+          Overlap in users, shared links, and topic similarity (heuristic).
+        </p>
+
+        <!-- Comparison grid:
+             - overlapping users summary
+             - top overlapping users list
+             - shared links (spans right half)
+             - duplicate posts (full width)
+             - topic matches (full width) -->
+        <div class="dash-grid cmp-grid">
+          <div class="dash-card">
+            <h3>Overlapping users</h3>
+            <p id="cmpUsersSummary">—</p>
+          </div>
+
+          <div class="dash-card">
+            <h3>Top overlapping users</h3>
+            <div id="cmpTopUsers">—</div>
+          </div>
+
+          <div class="dash-card cmp-span-2">
+            <h3>Shared links</h3>
+            <p id="cmpLinksSummary">—</p>
+            <div id="cmpLinksList" style="margin-top:8px; font-size:12px; opacity:0.95;"></div>
+          </div>
+
+          <div class="dash-card cmp-full">
+            <h3>Duplicate posts</h3>
+            <p id="cmpDupSummary">—</p>
+            <div id="cmpDupList" style="margin-top:8px;"></div>
+          </div>
+
+          <div class="dash-card cmp-full">
+            <h3>Top topic matches</h3>
+            <div id="cmpTopicMatches">—</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Multi-mode results container (one section per subreddit) -->
+    <div id="multiResults" style="display:none;"></div>
+
+    <!-- ======================================================================
+         Single-subreddit dashboard (shown in single mode)
+         ====================================================================== -->
+    <section id="dashboard" class="dashboard">
+      <div class="card"
+           style="padding:16px; background:var(--bg-2); border-radius:12px;">
+        <h2 style="margin-top:0;">Subreddit Dashboard</h2>
+        <p style="opacity:0.7;font-size:13px;">
+          Snapshot of recent activity (based on fetched posts).
+        </p>
+
+        <!-- AI-generated subreddit overview text -->
+        <div class="dash-card" style="margin-top:12px;">
+          <h3>Subreddit overview (AI)</h3>
+          <p id="subredditSummary" style="white-space:pre-wrap; font-size:14px; line-height:1.4;">
+            —
+          </p>
+        </div>
+
+        <!-- Primary metric cards -->
+        <div class="dash-grid">
+          <div class="dash-card" id="modeCard">
+            <h3 id="modeCardTitle">
+              Bot filtering
+              <span
+                class="info-icon"
+                id="modeCardTooltip"
+                data-tooltip="
+                  When enabled, suspected bot accounts are detected with BotBuster and their posts
+                  are removed before computing the analytics and topics. This is a heuristic and
+                  some bots or humans may still be misclassified.
+                "
+              >ⓘ</span>
+            </h3>
+            <p id="botFilterInfo">
+              Bot filter OFF: all fetched posts are included.
+            </p>
+          </div>
+
+          <div class="dash-card">
+            <h3>Top posts</h3>
+            <p id="topPosts">—</p>
+          </div>
+
+          <div class="dash-card">
+            <h3>Avg Reddit index
+              <span class="info-icon" data-tooltip="
+              The Reddit index is the number of upvotes minus downvotes per post.
+            ">ⓘ</span>
+            </h3>
+            <p id="avgScore">—</p>
+          </div>
+
+          <div class="dash-card">
+            <h3>Avg post length</h3>
+            <p id="avgLength">—</p>
+          </div>
+
+          <div class="dash-card">
+            <h3>Avg # comments</h3>
+            <p id="avgComments">—</p>
+          </div>
+
+          <div class="dash-card">
+            <h3>Subscribers</h3>
+            <p id="subredditViewers">—</p>
+          </div>
+
+          <!-- Sentiment panel: VADER histogram counts + beam tilt indicator -->
+          <div class="dash-card dash-span-2" style="margin-top:12px;">
+            <h3>Sentiment of fetched posts
+              <span class="info-icon" data-tooltip="
+                The sentiment is computed with VADER on the combined title and text of each post.
+                Negative < -0.05, Positive > 0.05, and Neutral in between.
+              ">ⓘ</span>
+            </h3>
+            <div id="sentimentChart"></div>
+          </div>
+
+          <div class="dash-card" >
+            <h3>Time Range of Fetched Posts:</h3>
+            <p id="timeRange">—</p>
+          </div>
+
+          <div class="dash-card" >
+            <h3>
+              Recent Activity (24h / 7d)
+              <span class="info-icon" data-tooltip="
+                These counts represent posts retrieved during this run. They may over-represent the current day depending on when the analysis is executed.
+              ">ⓘ</span>
+            </h3>
+            <p id="activityWindow">—</p>
+          </div>
+
+          <div class="dash-card" >
+            <h3>
+              Most Active Hour
+              <span class="info-icon" data-tooltip="
+              These activity metrics are based on the subreddit’s recent posts retrieved at runtime. Because the fetch window includes only the latest activity, hours close to the current time will naturally appear more active. These patterns do not represent historical posting behavior.
+              ">ⓘ</span>
+            </h3>
+            <p id="activeHour">—</p>
+          </div>
+        </div>
+
+        <!-- Day-of-week activity mini bar chart -->
+        <div class="dash-card" style="margin-top:12px;">
+          <h3>
+            Activity by Day of Week
+            <span class="info-icon" data-tooltip="
+            These activity metrics are based on the subreddit’s recent posts retrieved at runtime. Because the fetch window includes only the latest activity, days close to the current date will naturally appear more active. These patterns do not represent historical posting behavior.
+            ">ⓘ</span>
+          </h3>
+          <div id="dowChart"></div>
+        </div>
+
+        <!-- User activity distribution:
+             - top users list
+             - histogram + log-scaled histogram canvases -->
+        <div class="dash-card" style="margin-top:12px;">
+          <h3>
+            Observers vs Social Spammers
+            <span class="info-icon" data-tooltip="
+              We approximate how often each user posts by dividing their number of posts in this dataset by the length of the fetch window. Buckets show how many distinct users fall into each posting-rate range. Social spammers are the most active users, while observers tend to post less.
+            ">ⓘ</span>
+          </h3>
+          <p id="topUsers" style="font-size:13px; margin-bottom:8px;">—</p>
+          <div class="hist-grid">
+            <div class="hist-panel">
+              <div class="hist-title">Histogram</div>
+              <canvas id="userHistCanvas" height="240"></canvas>
+            </div>
+
+            <div class="hist-panel">
+              <div class="hist-title">Log–log histogram</div>
+              <canvas id="userLogHistCanvas" height="240"></canvas>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ======================================================================
+         BERTopic chart area:
+         - iframe points at the generated Plotly/BERTopic HTML from the server
+         ====================================================================== -->
+    <div class="frame-wrap">
+      <iframe
+        id="plotFrame"
+        class="plot-frame"
+        src=""
+        loading="lazy"
+        style="display:block;"
+      ></iframe>
+    </div>
+  </section>
+</main>
+
+<script>
+  /* ======================================================================
+     DOM references + client-side state
+     - selectedSubs stores the current subreddit tags
+     - most UI updates happen by showing/hiding sections + injecting HTML
+     ====================================================================== */
+  const subInput  = document.getElementById('subInput');
+  const analyzeBtn = document.getElementById('analyzeBtn');
+  const analyzeMenu = document.getElementById('analyzeMenu');
+  const analyzeInclude = document.getElementById('analyzeIncludeBots');
+  const analyzeNoBots = document.getElementById('analyzeNoBots');
+  const analyzeWithImages = document.getElementById('analyzeWithImages');
+  const spinner  = document.getElementById('spinner');
+  const msg      = document.getElementById('msg');
+  const frame    = document.getElementById('plotFrame');
+  const welcome  = document.getElementById('welcomePanel');
+  const tweakBtn = document.getElementById('tweakBtn');
+  const analysisArea = document.getElementById('analysisArea');
+  const tagWrap = document.getElementById('subTagWrap');
+  const tagContainer = document.getElementById('subTags');
+  const compareArea = document.getElementById('compareArea');
+  const multiResults = document.getElementById('multiResults');
+
+  let selectedSubs = []; 
+
+  /* ======================================================================
+     Small UI helpers: status line + input sanitation + tag rendering
+     ====================================================================== */
+  function showStatus(text = '', busy = false) {
+    msg.textContent = text;
+    spinner.style.display = busy ? 'inline-block' : 'none';
+  }
+
+  function sanitizeSubreddit(value) {
+    return (value || '')
+      .trim()
+      .replace(/^\/?r\//i, '')
+      .replace(/[^a-z0-9_-]/gi, '')
+      .toLowerCase();
+  }
+
+  function renderTags() {
+    if (!tagContainer) return;
+    tagContainer.innerHTML = selectedSubs.map((sr) => {
+      return `
+        <span style="display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border-radius:999px; background:rgba(148,163,184,0.18); border:1px solid rgba(148,163,184,0.35); font-size:12px;">
+          <span>r/${sr}</span>
+          <button data-sr="${sr}" aria-label="Remove ${sr}"
+            style="border:none; background:none; color:inherit; cursor:pointer; opacity:0.8; font-size:14px; line-height:1;">×</button>
+        </span>
+      `;
+    }).join('');
+
+    // Wire up remove buttons for each rendered tag
+    [...tagContainer.querySelectorAll('button[data-sr]')].forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        const sr = btn.getAttribute('data-sr');
+        selectedSubs = selectedSubs.filter(x => x !== sr);
+        persistTags();
+        renderTags();
+      });
+    });
+  }
+
+  function persistTags() {
+    localStorage.setItem('subreddits', JSON.stringify(selectedSubs));
+  }
+
+  function loadTags() {
+    try {
+      const raw = localStorage.getItem('subreddits');
+      if (!raw) return;
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) {
+        selectedSubs = arr.map(sanitizeSubreddit).filter(Boolean);
+      }
+    } catch (e) {}
+  }
+
+  function addSubredditTag(raw) {
+    const sr = sanitizeSubreddit(raw);
+    if (!sr || sr.length < 2) return;
+
+    if (!selectedSubs.includes(sr)) selectedSubs.push(sr);
+
+    // Optional cap to keep runtime predictable
+    if (selectedSubs.length > 5) selectedSubs = selectedSubs.slice(0, 5);
+
+    persistTags();
+    renderTags();
+  }
+
+  function parseAndAddFromInput() {
+    const text = subInput.value || '';
+    const parts = text.split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
+    parts.forEach(addSubredditTag);
+    subInput.value = '';
+  }
+
+  /* ======================================================================
+     View switching helpers: welcome vs analysis area
+     ====================================================================== */
+  function showFrame() {
+    welcome.style.display = 'none';
+    analysisArea.style.display = 'block';
+  }
+
+  function showWelcome() {
+    analysisArea.style.display = 'none';
+    welcome.style.display = 'block';
+  }
+
+  /* ======================================================================
+     Dashboard rendering (single-subreddit view):
+     - pulls metrics from analytics payload
+     - builds HTML for sentiment + day-of-week bars + histograms
+     ====================================================================== */
+  function updateDashboard(analytics) {
+    if (!analytics) return;
+
+    const actEl       = document.getElementById('activityWindow');
+    const avgEl       = document.getElementById('avgScore');
+    const lenEl       = document.getElementById('avgLength');
+    const commentsEl  = document.getElementById('avgComments');
+    const hourEl      = document.getElementById('activeHour');
+    const topEl       = document.getElementById('topPost');   
+    const topListEl   = document.getElementById('topPosts');
+    const subEl       = document.getElementById('subredditViewers');
+    const dowEl       = document.getElementById('dowChart');
+    const summaryEl   = document.getElementById('subredditSummary');
+    const timeRangeEl = document.getElementById('timeRange');
+    const botFilterEl = document.getElementById('botFilterInfo');
+    const modeCard    = document.getElementById('modeCard');
+    const modeCardTitle = document.getElementById('modeCardTitle');
+    const modeCardTooltip = document.getElementById('modeCardTooltip');
+    const userHistCanvas = document.getElementById('userHistCanvas');
+    const userLogHistCanvas = document.getElementById('userLogHistCanvas');
+    const topUsersEl    = document.getElementById('topUsers');
+    const sentimentEl = document.getElementById('sentimentChart');
+
+    function formatUTCDate(isoString) {
+      const d = new Date(isoString);
+      return d.toLocaleString("en-US", {
+        timeZone: "UTC",
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true
+      }) + " UTC";
+    }
+
+    // AI summary
+    if (summaryEl) {
+      const s = analytics.subreddit_summary;
+      if (s && typeof s === 'string' && s.trim().length > 0) {
+        summaryEl.textContent = s;
+      } else {
+        summaryEl.textContent = 'Subreddit overview unavailable.';
+      }
+    }
+
+    // last 24h / 7d
+    if (actEl) {
+      const d = analytics.posts_last_day ?? 0;
+      const w = analytics.posts_last_week ?? 0;
+      actEl.textContent = `${d} in last 24h · ${w} in last 7d`;
+    }
+
+    // avg net score
+    if (avgEl) {
+      if (analytics.avg_score != null) {
+        avgEl.textContent = analytics.avg_score.toFixed(1);
+      } else {
+        avgEl.textContent = '—';
+      }
+    }
+
+    // Mode-specific first card: regular / bot filter / image-aware
+    if (modeCard && modeCardTitle && botFilterEl) {
+      const botActive  = !!analytics.bot_filter_active;
+      const imgActive  = !!analytics.image_augmentation_active;
+      const original   = analytics.original_total_posts ?? analytics.total_posts ?? 0;
+      const filteredOut  = analytics.bots_filtered_out ?? 0;
+      const remaining    = analytics.total_posts ?? (original - filteredOut);
+
+      if (!botActive && !imgActive) {
+        // Regular analytics: hide the card entirely so "Top posts" becomes first
+        modeCard.style.display = 'none';
+      } else if (imgActive) {
+        // Image-aware mode: show a notice about image descriptions
+        modeCard.style.display = '';
+        modeCardTitle.childNodes[0].nodeValue = 'Image-aware topics ';
+
+        if (modeCardTooltip) {
+          modeCardTooltip.setAttribute(
+            'data-tooltip',
+            `
+            When enabled, Reddit posts with images are sent to an OpenAI vision model
+            for short descriptions. These descriptions are appended to the post text
+            before running BERTopic, so topics and keywords reflect both text and image content.
+            This uses additional OpenAI tokens.
+            `.trim()
+          );
+        }
+
+        botFilterEl.textContent =
+          'Image-aware mode ON: posts with images are given short AI-generated descriptions before topic modeling. ' +
+          'Topic clusters and keywords may reflect both the text and visual content of posts.';
+      } else if (botActive) {
+        // Bot filtering mode: show the original bot filter explanation
+        modeCard.style.display = '';
+        modeCardTitle.childNodes[0].nodeValue = 'Bot filtering ';
+
+        if (modeCardTooltip) {
+          modeCardTooltip.setAttribute(
+            'data-tooltip',
+            `
+            When enabled, suspected bot accounts are detected with BotBuster and their posts
+            are removed before computing the analytics and topics. This is a heuristic and
+            some bots or humans may still be misclassified.
+            `.trim()
+          );
+        }
+
+        if (!original) {
+          botFilterEl.textContent = 'Bot filter status: unavailable.';
+        } else {
+          const pct = original ? (filteredOut / original) * 100 : 0;
+          botFilterEl.textContent =
+            `Bot filter ON: removed ${filteredOut} suspected bot posts ` +
+            `out of ${original} (${pct.toFixed(1)}%). ` +
+            `All stats below use the remaining ${remaining} posts.`;
+        }
+      }
+    }
+
+    // avg post length
+    if (lenEl) {
+      if (analytics.avg_post_length != null) {
+        lenEl.textContent = `${analytics.avg_post_length.toFixed(0)} chars`;
+      } else {
+        lenEl.textContent = '—';
+      }
+    }
+
+    // avg comments
+    if (commentsEl) {
+      if (analytics.avg_comments != null) {
+        commentsEl.textContent = analytics.avg_comments.toFixed(1);
+      } else {
+        commentsEl.textContent = '—';
+      }
+    }
+
+    // time range of fetched posts
+    if (timeRangeEl) {
+      const tr = analytics.time_range;
+      if (tr && tr.min && tr.max) {
+        const minFmt = formatUTCDate(tr.min);
+        const maxFmt = formatUTCDate(tr.max);
+        timeRangeEl.textContent = `${minFmt} — ${maxFmt}`;
+      } else {
+        timeRangeEl.textContent = 'Time range: unavailable';
+      }
+    }
+
+    // most active hour
+    if (hourEl) {
+      const h = analytics.most_active_hour_utc;
+      if (h != null) {
+        const start = String(h).padStart(2, '0');
+        const end   = String((h + 1) % 24).padStart(2, '0');
+        hourEl.textContent = `${start}:00–${end}:00`;
+      } else {
+        hourEl.textContent = '—';
+      }
+    }
+
+    // single top post (optional)
+    if (topEl) {
+      const top = analytics.top_post;
+      if (top && top.title) {
+        const scoreText = (top.score != null) ? ` (score: ${top.score})` : '';
+        topEl.innerHTML = `
+          <a href="${top.url}" target="_blank" rel="noopener">
+            ${top.title}
+          </a><span style="font-size:12px;opacity:0.8;">${scoreText}</span>
+        `;
+      } else {
+        topEl.textContent = '—';
+      }
+    }
+
+    // top 3 posts list
+    if (topListEl) {
+      const list = analytics.top_posts || [];
+
+      if (!list.length) {
+        const top = analytics.top_post;
+        if (top && top.title) {
+          const scoreText = (top.score != null) ? ` (score: ${top.score})` : '';
+          topListEl.innerHTML = `
+            <div>
+              <a href="${top.url}" target="_blank" rel="noopener">
+                ${top.title}
+              </a><span style="font-size:12px;opacity:0.8;">${scoreText}</span>
+            </div>
+          `;
+        } else {
+          topListEl.textContent = '—';
+        }
+      } else {
+        topListEl.innerHTML = list.map((p, idx) => {
+          const scoreText = (p.score != null) ? ` (score: ${p.score})` : '';
+          return `
+            <div style="margin-bottom:4px;">
+              <span style="font-size:12px;opacity:0.8;">#${idx + 1}</span>
+              <a href="${p.url}" target="_blank" rel="noopener">
+                ${p.title}
+              </a>
+              <span style="font-size:12px;opacity:0.8;">${scoreText}</span>
+            </div>
+          `;
+        }).join('');
+      }
+    }
+
+    // subscribers
+    if (subEl) {
+      const info = analytics.subreddit_info;
+      if (info && info.subscribers != null) {
+        subEl.textContent = info.subscribers.toLocaleString();
+      } else {
+        subEl.textContent = 'Unavailable';
+      }
+    }
+
+    // sentiment scale (neg/neu/pos + beam tilt) injected as HTML
+    if (sentimentEl) {
+      const hist = analytics.sentiment_hist || {};
+      const neg = hist.neg || 0;
+      const neu = hist.neu || 0;
+      const pos = hist.pos || 0;
+
+      let tilt = 0;
+      if (neg + pos > 0) {
+        tilt = ((pos - neg) / (pos + neg)) * 22; 
+      }
+
+      const label =
+        pos > neg ? "More positive" :
+        neg > pos ? "More negative" :
+        "Balanced";
+
+      sentimentEl.innerHTML = `
+        <div class="sentiment-scale">
+          <div class="sentiment-box left">
+            <div class="label">Negative</div>
+            <div class="value">${neg}</div>
+          </div>
+
+          <div class="sentiment-center">
+            <div class="neutral">Neutral: ${neu}</div>
+            <div class="summary">${label}</div>
+          </div>
+
+          <div class="sentiment-box right">
+            <div class="label">Positive</div>
+            <div class="value">${pos}</div>
+          </div>
+
+          <div class="sentiment-beam-row">
+            <div class="beam-wrap">
+              <div class="beam" style="transform: rotate(${tilt}deg);">
+                <div class="pivot"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    // day-of-week mini chart (simple proportional bars)
+    if (dowEl) {
+      const list = analytics.dow_counts || [];
+      if (!list.length) {
+        dowEl.textContent = 'No data.';
+        return;
+      }
+      const max = Math.max(...list.map(d => d.count));
+      dowEl.innerHTML = list.map(d => {
+        const pct = max ? (d.count / max) * 100 : 0;
+        const width = pct > 0 ? Math.max(pct, 5) : 0;
+        return `
+          <div class="dow-row">
+            <span class="dow-label">${d.day}</span>
+            <span class="dow-bar">
+              <span class="dow-bar-inner" style="width:${width}%;"></span>
+            </span>
+            <span class="dow-count">${d.count}</span>
+          </div>
+        `;
+      }).join('');
+    }
+
+    /* Histogram renderer:
+       - draws a simple bar chart on canvas
+       - supports optional log scaling for Y axis (logY: true) */
+    function drawBarChart(canvas, labels, counts, opts = {}) {
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      const dpr = window.devicePixelRatio || 1;
+
+      // Measure width safely (can be 0 if not laid out yet)
+      const rect = canvas.getBoundingClientRect();
+      let cssW = Math.floor(rect.width);
+
+      // Fallbacks if width is 0
+      if (!cssW) cssW = canvas.clientWidth;
+      if (!cssW) cssW = canvas.parentElement ? canvas.parentElement.clientWidth : 0;
+
+      // If still 0, bail and try again next frame
+      if (!cssW) {
+        requestAnimationFrame(() => drawBarChart(canvas, labels, counts, opts));
+        return;
+      }
+
+      // Use attribute height rather than computed layout height
+      const cssH = canvas.height;
+
+      canvas.width  = Math.floor(cssW * dpr);
+      canvas.height = Math.floor(cssH * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      ctx.clearRect(0, 0, cssW, cssH);
+
+      const padL = 34, padR = 10, padT = 10, padB = 22;
+      const W = cssW, H = cssH;
+      const innerW = W - padL - padR;
+      const innerH = H - padT - padB;
+
+      const useLogY = !!opts.logY;
+
+      const maxCount = Math.max(...counts, 1);
+      const yVal = (c) => {
+        if (!useLogY) return c;
+        return c <= 0 ? 0 : Math.log10(c);
+      };
+      const maxY = Math.max(...counts.map(yVal), 1);
+
+      // Axes
+      ctx.globalAlpha = 0.35;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(padL, padT);
+      ctx.lineTo(padL, padT + innerH);
+      ctx.lineTo(padL + innerW, padT + innerH);
+      ctx.stroke();
+
+      // Bars
+      const n = labels.length;
+      const gap = 6;
+      const barW = Math.max(6, (innerW - gap * (n - 1)) / n);
+
+      ctx.globalAlpha = 0.85;
+      for (let i = 0; i < n; i++) {
+        const c = counts[i];
+        const h = (yVal(c) / maxY) * innerH;
+
+        const x = padL + i * (barW + gap);
+        const y = padT + (innerH - h);
+
+        const t = n > 1 ? i / (n - 1) : 0;
+        const r = Math.round(220 * t + 80);
+        const g = Math.round(80 * (1 - t));
+        const b = Math.round(220 * (1 - t));
+
+        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, 0.75)`;
+        ctx.fillRect(x, y, barW, h);
+
+        // Outline
+        ctx.globalAlpha = 0.45;
+        ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+        ctx.strokeRect(x, y, barW, h);
+        ctx.globalAlpha = 0.85;
+
+        // Sparse x-axis labels (first/middle/last) to avoid clutter
+        if (opts.showXTicks && (i === 0 || i === n - 1 || i === Math.floor(n/2))) {
+          ctx.globalAlpha = 0.7;
+          ctx.fillStyle = '#fff';
+          ctx.font = '11px system-ui';
+          ctx.textAlign = 'center';
+          ctx.fillText(labels[i], x + barW/2, padT + innerH + 16);
+          ctx.globalAlpha = 0.85;
+        }
+      }
+    }
+
+    /* Render user frequency histograms:
+       - left: normal scale
+       - right: log-scaled y axis for heavy-tail visibility */
+    if (userHistCanvas && userLogHistCanvas) {
+      const buckets = analytics.user_freq_buckets || [];
+
+      if (!buckets.length) {
+        const parent = userHistCanvas.parentElement;
+        if (parent) parent.innerHTML = `<div style="opacity:0.7;font-size:13px;padding:8px 2px;">No user posting data.</div>`;
+        const parent2 = userLogHistCanvas.parentElement;
+        if (parent2) parent2.innerHTML = ``;
+      } else {
+        const labels = buckets.map(b => b.bucket);
+        const counts = buckets.map(b => b.user_count || 0);
+
+        drawBarChart(userHistCanvas, labels, counts, { showXTicks: true, logY: false });
+        drawBarChart(userLogHistCanvas, labels, counts, { showXTicks: true, logY: true });
+      }
+    }
+
+    // Top 3 users (“superspreaders”) list with links to profiles
+    if (topUsersEl) {
+      const users = analytics.top_users || [];
+      if (!users.length) {
+        topUsersEl.textContent = 'No user data available for this run.';
+      } else {
+        topUsersEl.innerHTML = users.map((u, idx) => {
+          const rate = u.posts_per_week != null
+            ? `${u.posts_per_week.toFixed(1)} posts/week`
+            : `${u.post_count} posts`;
+          return `
+            <div style="margin-bottom:4px;">
+              <span style="font-size:12px;opacity:0.8;">#${idx + 1}</span>
+              <a href="${u.url}" target="_blank" rel="noopener">
+                u/${u.name}
+              </a>
+              <span style="font-size:12px;opacity:0.8;">
+                — ${rate} (in this window)
+              </span>
+            </div>
+          `;
+        }).join('');
+      }
+    }
+  }
+
+  /* ======================================================================
+     Multi-dashboard renderer:
+     Same metrics as updateDashboard, but scoped to a particular subtree
+     (used when rendering multiple subreddits on one page)
+     ====================================================================== */
+  function updateDashboardScoped(root, analytics) {
+    if (!root || !analytics) return;
+
+    const q = (sel) => root.querySelector(sel);
+
+    const actEl       = q('[data-k="activityWindow"]');
+    const avgEl       = q('[data-k="avgScore"]');
+    const lenEl       = q('[data-k="avgLength"]');
+    const commentsEl  = q('[data-k="avgComments"]');
+    const hourEl      = q('[data-k="activeHour"]');
+    const topListEl   = q('[data-k="topPosts"]');
+    const subEl       = q('[data-k="subredditViewers"]');
+    const dowEl       = q('.dowChart');
+    const timeRangeEl = q('[data-k="timeRange"]');
+    const modeCard    = q('.modeCard');
+    const modeCardTitle = q('.modeCardTitle');
+    const modeCardTooltip = q('.modeCardTooltip');
+    const botFilterEl = q('[data-k="botFilterInfo"]');
+    const userHistCanvas = q('.userHistCanvas');
+    const userLogHistCanvas = q('.userLogHistCanvas');
+    const topUsersEl  = q('.topUsers');
+    const sentimentEl = q('.sentimentChart');
+
+    function formatUTCDate(isoString) {
+      const d = new Date(isoString);
+      return d.toLocaleString("en-US", {
+        timeZone: "UTC",
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true
+      }) + " UTC";
+    }
+
+    // last 24h / 7d
+    if (actEl) {
+      const d = analytics.posts_last_day ?? 0;
+      const w = analytics.posts_last_week ?? 0;
+      actEl.textContent = `${d} in last 24h · ${w} in last 7d`;
+    }
+
+    // avg net score
+    if (avgEl) avgEl.textContent = (analytics.avg_score != null) ? analytics.avg_score.toFixed(1) : '—';
+
+    // avg post length
+    if (lenEl) lenEl.textContent = (analytics.avg_post_length != null) ? `${analytics.avg_post_length.toFixed(0)} chars` : '—';
+
+    // avg comments
+    if (commentsEl) commentsEl.textContent = (analytics.avg_comments != null) ? analytics.avg_comments.toFixed(1) : '—';
+
+    // time range
+    if (timeRangeEl) {
+      const tr = analytics.time_range;
+      if (tr && tr.min && tr.max) {
+        timeRangeEl.textContent = `${formatUTCDate(tr.min)} — ${formatUTCDate(tr.max)}`;
+      } else {
+        timeRangeEl.textContent = 'Time range: unavailable';
+      }
+    }
+
+    // most active hour
+    if (hourEl) {
+      const h = analytics.most_active_hour_utc;
+      if (h != null) {
+        const start = String(h).padStart(2, '0');
+        const end   = String((h + 1) % 24).padStart(2, '0');
+        hourEl.textContent = `${start}:00–${end}:00`;
+      } else {
+        hourEl.textContent = '—';
+      }
+    }
+
+    // mode card (bot filtering / image-aware)
+    if (modeCard && modeCardTitle && botFilterEl) {
+      const botActive  = !!analytics.bot_filter_active;
+      const imgActive  = !!analytics.image_augmentation_active;
+      const original   = analytics.original_total_posts ?? analytics.total_posts ?? 0;
+      const filteredOut  = analytics.bots_filtered_out ?? 0;
+      const remaining    = analytics.total_posts ?? (original - filteredOut);
+
+      if (!botActive && !imgActive) {
+        modeCard.style.display = 'none';
+      } else if (imgActive) {
+        modeCard.style.display = '';
+        modeCardTitle.textContent = 'Image-aware topics';
+        if (modeCardTooltip) {
+          modeCardTooltip.setAttribute('data-tooltip',
+            `When enabled, posts with images get short AI descriptions before BERTopic. Uses extra tokens.`);
+        }
+        botFilterEl.textContent =
+          'Image-aware mode ON: posts with images are given AI-generated descriptions before topic modeling.';
+      } else if (botActive) {
+        modeCard.style.display = '';
+        modeCardTitle.textContent = 'Bot filtering';
+        if (modeCardTooltip) {
+          modeCardTooltip.setAttribute('data-tooltip',
+            `When enabled, suspected bots are detected with BotBuster and removed before analytics/topics.`);
+        }
+        if (!original) botFilterEl.textContent = 'Bot filter status: unavailable.';
+        else {
+          const pct = original ? (filteredOut / original) * 100 : 0;
+          botFilterEl.textContent =
+            `Bot filter ON: removed ${filteredOut} suspected bot posts out of ${original} (${pct.toFixed(1)}%). ` +
+            `All stats below use the remaining ${remaining} posts.`;
+        }
+      }
+    }
+
+    // top posts
+    if (topListEl) {
+      const list = analytics.top_posts || [];
+      if (!list.length) topListEl.textContent = '—';
+      else {
+        topListEl.innerHTML = list.map((p, idx) => {
+          const scoreText = (p.score != null) ? ` (score: ${p.score})` : '';
+          return `
+            <div style="margin-bottom:4px;">
+              <span style="font-size:12px;opacity:0.8;">#${idx + 1}</span>
+              <a href="${p.url}" target="_blank" rel="noopener">${p.title}</a>
+              <span style="font-size:12px;opacity:0.8;">${scoreText}</span>
+            </div>
+          `;
+        }).join('');
+      }
+    }
+
+    // subscribers
+    if (subEl) {
+      const info = analytics.subreddit_info;
+      subEl.textContent = (info && info.subscribers != null) ? info.subscribers.toLocaleString() : 'Unavailable';
+    }
+
+    // sentiment
+    if (sentimentEl) {
+      const hist = analytics.sentiment_hist || {};
+      const neg = hist.neg || 0, neu = hist.neu || 0, pos = hist.pos || 0;
+      let tilt = 0;
+      if (neg + pos > 0) tilt = ((pos - neg) / (pos + neg)) * 22;
+      const label = pos > neg ? "More positive" : neg > pos ? "More negative" : "Balanced";
+
+      sentimentEl.innerHTML = `
+        <div class="sentiment-scale">
+          <div class="sentiment-box left"><div class="label">Negative</div><div class="value">${neg}</div></div>
+          <div class="sentiment-center"><div class="neutral">Neutral: ${neu}</div><div class="summary">${label}</div></div>
+          <div class="sentiment-box right"><div class="label">Positive</div><div class="value">${pos}</div></div>
+          <div class="sentiment-beam-row"><div class="beam-wrap">
+            <div class="beam" style="transform: rotate(${tilt}deg);"><div class="pivot"></div></div>
+          </div></div>
+        </div>
+      `;
+    }
+
+    // day-of-week chart
+    if (dowEl) {
+      const list = analytics.dow_counts || [];
+      if (!list.length) dowEl.textContent = 'No data.';
+      else {
+        const max = Math.max(...list.map(d => d.count));
+        dowEl.innerHTML = list.map(d => {
+          const pct = max ? (d.count / max) * 100 : 0;
+          const width = pct > 0 ? Math.max(pct, 5) : 0;
+          return `
+            <div class="dow-row">
+              <span class="dow-label">${d.day}</span>
+              <span class="dow-bar"><span class="dow-bar-inner" style="width:${width}%;"></span></span>
+              <span class="dow-count">${d.count}</span>
+            </div>
+          `;
+        }).join('');
+      }
+    }
+
+    /* Histogram helper */
+    function drawBarChart(canvas, labels, counts, opts = {}) {
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      const dpr = window.devicePixelRatio || 1;
+
+      const rect = canvas.getBoundingClientRect();
+      let cssW = Math.floor(rect.width);
+
+      if (!cssW) cssW = canvas.clientWidth;
+      if (!cssW) cssW = canvas.parentElement ? canvas.parentElement.clientWidth : 0;
+
+      if (!cssW) {
+        requestAnimationFrame(() => drawBarChart(canvas, labels, counts, opts));
+        return;
+      }
+
+      const cssH = canvas.height;
+
+      canvas.width  = Math.floor(cssW * dpr);
+      canvas.height = Math.floor(cssH * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      ctx.clearRect(0, 0, cssW, cssH);
+
+      const padL = 34, padR = 10, padT = 10, padB = 22;
+      const W = cssW, H = cssH;
+      const innerW = W - padL - padR;
+      const innerH = H - padT - padB;
+
+      const useLogY = !!opts.logY;
+      const yVal = (c) => (!useLogY ? c : (c <= 0 ? 0 : Math.log10(c)));
+      const maxY = Math.max(...counts.map(yVal), 1);
+
+      ctx.globalAlpha = 0.35;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(padL, padT);
+      ctx.lineTo(padL, padT + innerH);
+      ctx.lineTo(padL + innerW, padT + innerH);
+      ctx.stroke();
+
+      const n = labels.length;
+      const gap = 6;
+      const barW = Math.max(6, (innerW - gap * (n - 1)) / n);
+
+      ctx.globalAlpha = 0.85;
+      for (let i = 0; i < n; i++) {
+        const c = counts[i];
+        const h = (yVal(c) / maxY) * innerH;
+        const x = padL + i * (barW + gap);
+        const y = padT + (innerH - h);
+
+        const t = n > 1 ? i / (n - 1) : 0;
+        const r = Math.round(220 * t + 80);
+        const g = Math.round(80 * (1 - t));
+        const b = Math.round(220 * (1 - t));
+
+        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, 0.75)`;
+        ctx.fillRect(x, y, barW, h);
+
+        ctx.globalAlpha = 0.45;
+        ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+        ctx.strokeRect(x, y, barW, h);
+        ctx.globalAlpha = 0.85;
+
+        if (opts.showXTicks && (i === 0 || i === n - 1 || i === Math.floor(n/2))) {
+          ctx.globalAlpha = 0.7;
+          ctx.fillStyle = '#fff';
+          ctx.font = '11px system-ui';
+          ctx.textAlign = 'center';
+          ctx.fillText(labels[i], x + barW/2, padT + innerH + 16);
+          ctx.globalAlpha = 0.85;
+        }
+      }
+    }
+
+    // histograms + top users
+    if (userHistCanvas && userLogHistCanvas) {
+      const buckets = analytics.user_freq_buckets || [];
+      if (!buckets.length) {
+        const parent = userHistCanvas.parentElement;
+        if (parent) parent.innerHTML = `<div style="opacity:0.7;font-size:13px;padding:8px 2px;">No user posting data.</div>`;
+        const parent2 = userLogHistCanvas.parentElement;
+        if (parent2) parent2.innerHTML = ``;
+      } else {
+        const labels = buckets.map(b => b.bucket);
+        const counts = buckets.map(b => b.user_count || 0);
+        drawBarChart(userHistCanvas, labels, counts, { showXTicks: true, logY: false });
+        drawBarChart(userLogHistCanvas, labels, counts, { showXTicks: true, logY: true });
+      }
+    }
+
+    if (topUsersEl) {
+      const users = analytics.top_users || [];
+      if (!users.length) topUsersEl.textContent = 'No user data available for this run.';
+      else {
+        topUsersEl.innerHTML = users.map((u, idx) => {
+          const rate = u.posts_per_week != null ? `${u.posts_per_week.toFixed(1)} posts/week` : `${u.post_count} posts`;
+          return `
+            <div style="margin-bottom:4px;">
+              <span style="font-size:12px;opacity:0.8;">#${idx + 1}</span>
+              <a href="${u.url}" target="_blank" rel="noopener">u/${u.name}</a>
+              <span style="font-size:12px;opacity:0.8;">— ${rate} (in this window)</span>
+            </div>
+          `;
+        }).join('');
+      }
+    }
+  }
+
+  /* ======================================================================
+     Analyze dropdown menu toggle
+     ====================================================================== */
+  function toggleAnalyzeMenu() {
+    if (!analyzeMenu) return;
+    const isOpen = analyzeMenu.style.display === 'block';
+    analyzeMenu.style.display = isOpen ? 'none' : 'block';
+  }
+
+  /* ======================================================================
+     Layout mode toggles:
+     - single mode shows one dashboard + one iframe
+     - multi mode shows multiResults (per subreddit) and the comparison panel
+     ====================================================================== */
+  function showSingleMode() {
+    compareArea.style.display = 'none';
+    multiResults.style.display = 'none';
+    document.getElementById('dashboard').style.display = '';
+    document.querySelector('.frame-wrap').style.display = '';
+  }
+
+  function showMultiMode() {
+    document.getElementById('dashboard').style.display = 'none';
+    document.querySelector('.frame-wrap').style.display = 'none';
+    multiResults.style.display = 'block';
+  }
+
+  /* ======================================================================
+     Safety + formatting helpers for injecting text into HTML
+     ====================================================================== */
+  function escapeHtml(s) {
+    return String(s ?? '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#039;');
+  }
+
+  function minutesToHuman(mins) {
+    if (mins == null || !isFinite(mins)) return '—';
+    const m = Math.round(mins);
+    if (m < 60) return `${m} min`;
+    const h = Math.floor(m / 60);
+    const r = m % 60;
+    if (h < 24) return r ? `${h}h ${r}m` : `${h}h`;
+    const d = Math.floor(h / 24);
+    const hh = h % 24;
+    return hh ? `${d}d ${hh}h` : `${d}d`;
+  }
+
+  function utcFromSeconds(sec) {
+    if (sec == null || !isFinite(sec)) return '';
+    const d = new Date(sec * 1000);
+    return d.toLocaleString("en-US", {
+      timeZone: "UTC",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true
+    }) + " UTC";
+  }
+
+  /* ======================================================================
+     Duplicate-post link helpers:
+     - groups posts by subreddit and picks a representative example link
+     ====================================================================== */
+  function buildExampleLinksBySubreddit(posts, maxPerSub = 1) {
+    const bySub = {};
+    (posts || []).forEach(p => {
+      const sr = (p.subreddit || '').toLowerCase();
+      if (!sr) return;
+      if (!bySub[sr]) bySub[sr] = [];
+      bySub[sr].push(p);
+    });
+
+    const subKeys = Object.keys(bySub).sort();
+    const blocks = subKeys.map(sr => {
+      const items = (bySub[sr] || []).slice().sort((a, b) => (a.created_utc || 0) - (b.created_utc || 0));
+      const picked = items.slice(0, maxPerSub);
+
+      const links = picked.map(p => {
+        const title = escapeHtml(p.title || 'View post');
+        const link = escapeHtml(p.permalink || '');
+        if (!link) return '';
+        return `
+          <div style="margin-top:4px;font-size:12px;">
+          </div>
+        `;
+      }).join('');
+
+      if (!links.trim()) {
+        return `
+          <div style="margin-top:4px;font-size:12px;opacity:0.7;">
+            No link available for r/${escapeHtml(sr)}.
+          </div>
+        `;
+      }
+      return links;
+    }).join('');
+
+    return blocks || '';
+  }
+
+  /* ======================================================================
+     Duplicate cluster renderer:
+     - creates a compact card for each duplication cluster
+     - supports an "expanded" view when open
+     ====================================================================== */
+  function renderDupCluster(cluster, idx, kindLabel, dupListEl) {
+    const subs = (cluster.subreddits || []).map(s => `r/${escapeHtml(s)}`).join(', ');
+    const authors = (cluster.unique_authors || []).slice(0, 6).map(a => `u/${escapeHtml(a)}`).join(', ');
+    const spread = minutesToHuman(cluster.spread_minutes);
+
+    const posts = cluster.posts || [];
+    const exampleLinks = buildExampleLinksBySubreddit(posts, 1);
+    const showN = 6;
+    const shown = posts.slice(0, showN);
+
+    const canonical = cluster.canonical_text ? escapeHtml(cluster.canonical_text) : null;
+
+    const rawId = String(cluster.cluster_id || (kindLabel + '_' + idx));
+    const safeId = rawId.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const id = `dup_${safeId}`;
+
+    const open = (dupListEl && dupListEl.getAttribute('data-open') === id);
+
+    const postRows = shown.map(p => {
+      const title = escapeHtml(p.title || '(no title)');
+      const sr = escapeHtml(p.subreddit || '');
+      const author = escapeHtml(p.author || '');
+      const when = utcFromSeconds(p.created_utc);
+      const link = p.permalink ? escapeHtml(p.permalink) : '';
+      return `
+        <div style="padding:6px 0; border-top:1px solid rgba(148,163,184,0.18);">
+          <div style="font-size:13px;">
+            <a href="${link}" target="_blank" rel="noopener" style="color:var(--accent-2); text-decoration:none;">
+              ${title}
+            </a>
+          </div>
+          <div style="opacity:0.75; font-size:12px;">
+            r/${sr} · u/${author} · ${escapeHtml(when)}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    const moreCount = Math.max(0, posts.length - shown.length);
+
+    const signals = (cluster.user_signals || []).slice(0, 3).map(s => {
+      const u = escapeHtml(s.author || '');
+      const minGap = minutesToHuman(s.min_gap_minutes);
+      const n = s.post_count ?? 0;
+      return `<div style="opacity:0.85; font-size:12px;">u/${u} · ${n} dup posts </div>`;
+    }).join('');
+
+    const expandedUsers = (cluster.user_signals || []).map(s => {
+      const u = escapeHtml(s.author || '');
+      const minGap = minutesToHuman(s.min_gap_minutes);
+      const n = s.post_count ?? 0;
+
+      const trail = (s.posts || []).map(p => {
+        const sr = escapeHtml(p.subreddit || '');
+        const when = utcFromSeconds(p.created_utc);
+        const link = p.permalink ? escapeHtml(p.permalink) : '';
+        const t = escapeHtml(p.title || 'post');
+        return `
+          <div style="margin-left:10px; padding:3px 0; opacity:0.85;">
+            <a href="${link}" target="_blank" rel="noopener" style="color:var(--accent-2); text-decoration:none;">
+              ${t}
+            </a>
+            <span style="opacity:0.75;"> · r/${sr} · ${escapeHtml(when)}</span>
+          </div>
+        `;
+      }).join('');
+
+      return `
+        <div style="margin-top:8px; padding-top:8px; border-top:1px solid rgba(148,163,184,0.18);">
+          <div style="font-size:13px;"><strong>u/${u}</strong> — ${n} posts </div>
+          ${trail}
+        </div>
+      `;
+    }).join('');
+
+    const expandedPosts = posts.slice(showN).map(p => {
+      const title = escapeHtml(p.title || '(no title)');
+      const sr = escapeHtml(p.subreddit || '');
+      const author = escapeHtml(p.author || '');
+      const when = utcFromSeconds(p.created_utc);
+      const link = p.permalink ? escapeHtml(p.permalink) : '';
+      return `
+        <div style="padding:6px 0; border-top:1px solid rgba(148,163,184,0.18);">
+          <div style="font-size:13px;">
+            <a href="${link}" target="_blank" rel="noopener" style="color:var(--accent-2); text-decoration:none;">
+              ${title}
+            </a>
+          </div>
+          <div style="opacity:0.75; font-size:12px;">
+            r/${sr} · u/${author} · ${escapeHtml(when)}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <div style="padding:10px 12px; border-radius:10px; border:1px solid rgba(148,163,184,0.22); background:rgba(15,23,42,0.25); margin-bottom:10px;">
+        <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start;">
+          <div style="flex:1;">
+            <div style="font-size:13px;">
+              <strong>${escapeHtml(kindLabel)}</strong>
+              <span style="opacity:0.8;"> · ${posts.length} posts · ${subs} </span>
+            </div>
+            ${canonical ? `<div style="margin-top:6px; font-size:12px; opacity:0.75;">${canonical}</div>` : ``}
+            ${signals ? `<div style="margin-top:6px;">${signals}</div>` : ``}
+            ${exampleLinks ? `<div style="margin-top:8px;">${exampleLinks}</div>` : ``}
+            <div style="margin-top:8px;">${postRows}</div>
+            ${moreCount > 0 ? `<div style="opacity:0.75; font-size:12px; margin-top:6px;">+${moreCount} more posts</div>` : ``}
+          </div>
+        </div>
+
+        ${open ? `
+          <div style="margin-top:10px;">
+            <div style="font-size:13px; opacity:0.9;"><strong>All user duplication trails</strong></div>
+            ${expandedUsers || `<div style="opacity:0.75; font-size:12px; margin-top:6px;">No per-user trails available.</div>`}
+
+            ${expandedPosts ? `
+              <div style="margin-top:12px; font-size:13px; opacity:0.9;"><strong>More posts in cluster</strong></div>
+              <div style="margin-top:6px;">${expandedPosts}</div>
+            ` : ``}
+          </div>
+        ` : ``}
+      </div>
+    `;
+  }
+
+  /* ======================================================================
+     Cluster signature helpers:
+     Used to dedupe "near duplicates" that are actually identical to "exact"
+     ====================================================================== */
+  function normalizeText(s) {
+    return String(s ?? "")
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function normalizeLink(u) {
+    let s = String(u ?? "").trim();
+    if (!s) return "";
+
+    s = s.replace(/^https?:\/\/(www\.)?reddit\.com/i, "");
+    s = s.replace(/[?#].*$/, "");
+    s = s.replace(/\/+$/, "");
+
+    return s;
+  }
+
+  function clusterSignatures(c) {
+    const sigs = [];
+
+    const links = (c?.posts || [])
+      .map(p => normalizeLink(p?.permalink || p?.url || ""))
+      .filter(Boolean)
+      .sort()
+      .join("|");
+
+    if (links) sigs.push(`links:${links}`);
+
+    const canon = normalizeText(c?.canonical_text);
+    if (canon) sigs.push(`canon:${canon}`);
+
+    if (c?.cluster_id != null) sigs.push(`id:${String(c.cluster_id)}`);
+
+    return sigs;
+  }
+
+  /* ======================================================================
+     Cross-subreddit comparison renderer:
+     - fills overlap stats, shared links list, topic matches, and duplication clusters
+     ====================================================================== */
+  function renderComparison(comparison) {
+    if (!comparison) {
+      compareArea.style.display = 'none';
+      return;
+    }
+    compareArea.style.display = 'block';
+
+    const usersEl = document.getElementById('cmpUsersSummary');
+    const linksEl = document.getElementById('cmpLinksSummary');
+    const topUsersEl = document.getElementById('cmpTopUsers');
+    const topicsEl = document.getElementById('cmpTopicMatches');
+    const linksListEl = document.getElementById('cmpLinksList');
+    const dupSummaryEl = document.getElementById('cmpDupSummary');
+    const dupListEl = document.getElementById('cmpDupList');
+
+    const u = comparison.users || {};
+    const l = comparison.shared_links || {};
+    const t = comparison.topic_similarity || {};
+    const dups = comparison.duplicates || {};
+
+    if (usersEl) {
+      usersEl.textContent =
+        `${u.intersection_count ?? 0} overlapping · ${u.union_count ?? 0} total unique`;
+    }
+    if (linksEl) {
+      linksEl.textContent = `${l.shared_url_count ?? 0} shared links across selected subreddits`;
+    }
+
+    // Shared links list with "Show more/less" toggle state stored in data-show-all
+    if (linksListEl) {
+      const urls = (l.top_shared_urls || []).map(x => x.url).filter(Boolean);
+
+      if (!urls.length) {
+        linksListEl.innerHTML = `<div style="opacity:0.7;">No shared links found.</div>`;
+      } else {
+        const DEFAULT_N = 12;
+        const showAll = linksListEl.getAttribute('data-show-all') === '1';
+
+        const shown = showAll ? urls : urls.slice(0, DEFAULT_N);
+        const hiddenCount = Math.max(0, urls.length - shown.length);
+
+        const escapeHtml = (s) =>
+          String(s)
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll("'", '&#039;');
+
+        linksListEl.innerHTML = `
+          <div style="display:flex; flex-direction:column; gap:6px;">
+            ${shown.map(u => {
+              const safe = escapeHtml(u);
+              return `
+                <a href="${safe}" target="_blank" rel="noopener"
+                  style="text-decoration:none; color: var(--accent-2); word-break:break-all;">
+                  ${safe}
+                </a>
+              `;
+            }).join('')}
+
+            ${hiddenCount > 0 ? `
+              <button id="cmpLinksToggle"
+                class="dataset-select"
+                style="margin-top:6px; width:max-content; border:none; background:rgba(148,163,184,0.15); padding:6px 10px; border-radius:10px; cursor:pointer;">
+                Show ${hiddenCount} more
+              </button>
+            ` : (urls.length > DEFAULT_N ? `
+              <button id="cmpLinksToggle"
+                class="dataset-select"
+                style="margin-top:6px; width:max-content; border:none; background:rgba(148,163,184,0.15); padding:6px 10px; border-radius:10px; cursor:pointer;">
+                Show less
+              </button>
+            ` : ``)}
+          </div>
+        `;
+
+        const toggleBtn = document.getElementById('cmpLinksToggle');
+        if (toggleBtn) {
+          toggleBtn.addEventListener('click', () => {
+            linksListEl.setAttribute('data-show-all', showAll ? '0' : '1');
+            renderComparison(comparison);
+          });
+        }
+      }
+    }
+
+    // Top overlapping users (with per-subreddit breakdown)
+    if (topUsersEl) {
+      const rows = (u.top_overlapping_users || []).slice(0, 10);
+      if (!rows.length) topUsersEl.textContent = '—';
+      else {
+        topUsersEl.innerHTML = rows.map(r => {
+          const by = r.by_subreddit || {};
+          const byText = Object.keys(by).map(k => `r/${k}: ${by[k]}`).join(' · ');
+          return `
+            <div style="margin-bottom:6px;">
+              <a href="${r.url}" target="_blank" rel="noopener">u/${r.user}</a>
+              <span style="opacity:0.8;font-size:12px;"> — ${byText} (total ${r.total_posts_across_selected})</span>
+            </div>
+          `;
+        }).join('');
+      }
+    }
+
+    // Topic matches (top 5) with keywords + example link per subreddit
+    if (topicsEl) {
+      const rows = (t.top_matches || []).slice(0, 5);
+      if (!rows.length) topicsEl.textContent = '—';
+      else {
+        topicsEl.innerHTML = rows.map(r => {
+          const a = r.example_post_a;
+          const b = r.example_post_b;
+
+          const aLink = (a && a.url)
+            ? `<div style="margin-top:6px;font-size:12px;">
+                <a href="${a.url}" target="_blank" rel="noopener"
+                    style="color: var(--accent-2); text-decoration:none;">
+                  Example in r/${r.sub_a}: ${a.title || 'View post'}
+                </a>
+              </div>`
+            : `<div style="margin-top:6px;font-size:12px;opacity:0.7;">
+                No example post available for r/${r.sub_a}.
+              </div>`;
+
+          const bLink = (b && b.url)
+            ? `<div style="margin-top:4px;font-size:12px;">
+                <a href="${b.url}" target="_blank" rel="noopener"
+                    style="color: var(--accent-2); text-decoration:none;">
+                  Example in r/${r.sub_b}: ${b.title || 'View post'}
+                </a>
+              </div>`
+            : `<div style="margin-top:4px;font-size:12px;opacity:0.7;">
+                No example post available for r/${r.sub_b}.
+              </div>`;
+
+          return `
+            <div style="margin-bottom:12px;">
+              <div style="font-size:13px;">
+                <strong>r/${r.sub_a}</strong>: ${r.topic_a} ↔ <strong>r/${r.sub_b}</strong>: ${r.topic_b}
+                <span style="opacity:0.8;">(keyword overlap ${r.keyword_jaccard})</span>
+              </div>
+
+              <div style="opacity:0.75;font-size:12px; margin-top:2px;">
+                A: ${(r.keywords_a || []).join(', ')}
+              </div>
+              <div style="opacity:0.75;font-size:12px;">
+                B: ${(r.keywords_b || []).join(', ')}
+              </div>
+
+              ${aLink}
+              ${bLink}
+            </div>
+          `;
+        }).join('');
+      }
+    }
+
+    // Duplicate posts section: dedupe near-duplicates that match exact signatures, then render clusters
+    if (dupSummaryEl && dupListEl) {
+      const exact = dups.exact_clusters || [];
+      const near  = dups.near_clusters || [];
+
+      const exactSigSet = new Set();
+      exact.forEach(c => {
+        clusterSignatures(c).forEach(sig => exactSigSet.add(sig));
+      });
+
+      const nearFiltered = near.filter(c => {
+        const sigs = clusterSignatures(c);
+        return !sigs.some(sig => exactSigSet.has(sig));
+      });
+
+      const exactCount = exact.length;
+      const nearCount = nearFiltered.length;
+
+      if (!exactCount && !nearCount) {
+        dupSummaryEl.textContent = 'No duplicate clusters found across selected subreddits.';
+        dupListEl.innerHTML = `<div style="opacity:0.7; font-size:13px;">Try increasing fetch limit, or include more closely related subreddits.</div>`;
+      } else {
+        dupSummaryEl.textContent =
+          `${exactCount} exact-duplicate clusters · ${nearCount} near-duplicate clusters`;
+
+        const showExact = exact.slice(0, 5);
+        const showNear = nearFiltered.slice(0, 5);
+
+        dupListEl.innerHTML = `
+          ${showExact.length ? `<div style="margin-bottom:8px; font-size:13px;"><strong>Exact duplicates</strong></div>` : ``}
+          ${showExact.map((c, i) => renderDupCluster(c, i, 'Exact', dupListEl)).join('')}
+
+          ${showNear.length ? `<div style="margin:12px 0 8px; font-size:13px;"><strong>Near duplicates</strong> <span style="opacity:0.7; font-size:12px;">(small edits)</span></div>` : ``}
+          ${showNear.map((c, i) => renderDupCluster(c, i, 'Near', dupListEl)).join('')}
+        `;
+      }
+    }
+  }
+
+  /* ======================================================================
+     Multi-results renderer:
+     - builds a per-subreddit block containing:
+       - AI summary
+       - analytics cards (renderAnalyticsBlock)
+       - iframe chart
+     ====================================================================== */
+  function renderMultiResults(perSub) {
+    if (!multiResults) return;
+    multiResults.innerHTML = '';
+
+    perSub.forEach((item) => {
+      const sr = item.subreddit;
+      const url = item.url;
+
+      const block = document.createElement('section');
+      block.className = 'dashboard';
+      block.style.marginBottom = '14px';
+
+      block.innerHTML = `
+        <div class="card" style="padding:16px; background:var(--bg-2); border-radius:12px;">
+          <h2 style="margin-top:0;">r/${sr}</h2>
+
+          <div class="dash-card" style="margin-top:12px;">
+            <h3>Subreddit overview (AI)</h3>
+            <p style="white-space:pre-wrap;">
+              ${(item.analytics && item.analytics.subreddit_summary) ? item.analytics.subreddit_summary : '—'}
+            </p>
+          </div>
+
+          <div class="multi-analytics-slot"></div>
+
+          <div style="margin-top:12px;">
+            <iframe
+              class="plot-frame"
+              src="${url}?v=${Date.now()}"
+              loading="lazy"
+              style="width:100%; height:560px; border:0; border-radius:12px; background:rgba(0,0,0,0.2);"
+            ></iframe>
+          </div>
+        </div>
+      `;
+
+      const slot = block.querySelector('.multi-analytics-slot');
+      if (slot) {
+        if (item.analytics) {
+          slot.appendChild(renderAnalyticsBlock(item.analytics));
+        } else {
+          slot.innerHTML = `<div style="opacity:0.75; font-size:13px; padding:8px 2px;">
+            No analytics returned for r/${sr}. Check server logs for this subreddit.
+          </div>`;
+        }
+      }
+
+      multiResults.appendChild(block);
+    });
+  }
+
+  /* ======================================================================
+     Analytics block template for multi-mode:
+     - returns a DOM element with placeholders
+     - updateDashboardScoped() fills in the numbers + charts
+     ====================================================================== */
+  function renderAnalyticsBlock(analytics) {
+    const wrap = document.createElement('div');
+
+    wrap.innerHTML = `
+      <div class="dash-grid" style="margin-top:12px;">
+
+        <div class="dash-card modeCard">
+          <h3 class="modeCardTitle">
+            Bot filtering
+            <span class="info-icon modeCardTooltip" data-tooltip="">ⓘ</span>
+          </h3>
+          <p data-k="botFilterInfo">—</p>
+        </div>
+
+        <div class="dash-card">
+          <h3>Top posts</h3>
+          <p data-k="topPosts">—</p>
+        </div>
+
+        <div class="dash-card">
+          <h3>Avg Reddit index</h3>
+          <p data-k="avgScore">—</p>
+        </div>
+
+        <div class="dash-card">
+          <h3>Avg post length</h3>
+          <p data-k="avgLength">—</p>
+        </div>
+
+        <div class="dash-card">
+          <h3>Avg # comments</h3>
+          <p data-k="avgComments">—</p>
+        </div>
+
+        <div class="dash-card">
+          <h3>Subscribers</h3>
+          <p data-k="subredditViewers">—</p>
+        </div>
+
+        <div class="dash-card dash-span-2" style="margin-top:12px;">
+          <h3>Sentiment of fetched posts</h3>
+          <div class="sentimentChart"></div>
+        </div>
+
+        <div class="dash-card">
+          <h3>Time Range of Fetched Posts</h3>
+          <p data-k="timeRange">—</p>
+        </div>
+
+        <div class="dash-card">
+          <h3>Recent Activity (24h / 7d)</h3>
+          <p data-k="activityWindow">—</p>
+        </div>
+
+        <div class="dash-card">
+          <h3>Most Active Hour</h3>
+          <p data-k="activeHour">—</p>
+        </div>
+
+      </div>
+
+      <div class="dash-card" style="margin-top:12px;">
+        <h3>Activity by Day of Week</h3>
+        <div class="dowChart"></div>
+      </div>
+
+      <div class="dash-card" style="margin-top:12px;">
+        <h3>Observers vs Social Spammers</h3>
+        <p class="topUsers" style="font-size:13px; margin-bottom:8px;">—</p>
+
+        <div class="hist-grid">
+          <div class="hist-panel">
+            <div class="hist-title">Histogram</div>
+            <canvas class="userHistCanvas" height="240"></canvas>
+          </div>
+          <div class="hist-panel">
+            <div class="hist-title">Log–log histogram</div>
+            <canvas class="userLogHistCanvas" height="240"></canvas>
+          </div>
+        </div>
+      </div>
+    `;
+
+    updateDashboardScoped(wrap, analytics);
+    return wrap;
+  }
+
+  /* ======================================================================
+     Main analysis runner:
+     - collects selected subreddits
+     - POSTs to /analyze with mode flags
+     - stores state in sessionStorage for refresh restore
+     - renders single vs multi layouts based on # subs
+     ====================================================================== */
+  async function runAnalysis(filterBots, withImages = false) {
+    if ((subInput.value || '').trim()) parseAndAddFromInput();
+
+    const subs = selectedSubs.slice();
+    if (!subs.length) {
+      showStatus('Please add at least one subreddit.', false);
+      return;
+    }
+
+    window.currentSubreddit = subs.length === 1 ? subs[0] : null;
+
+    let statusText;
+    if (withImages) statusText = 'Analyzing with image descriptions…this may take longer.';
+    else if (filterBots) statusText = 'Analyzing without bots…this may take a few seconds';
+    else statusText = 'Requesting analysis…this may take a few seconds';
+
+    showStatus(statusText, true);
+    analyzeBtn.disabled = true;
+
+    try {
+      let settings = {};
+      try {
+        const cfgResp = await fetch('/settings/config');
+        if (cfgResp.ok) {
+          const cfgJson = await cfgResp.json();
+          if (cfgJson.success && cfgJson.config) settings = cfgJson.config;
+        }
+      } catch (e) {
+        console.warn('Could not fetch settings/config — proceeding with defaults', e);
+      }
+
+      const resp = await fetch('/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subreddits: subs,
+          filter_bots: filterBots,
+          with_images: withImages,
+          // bot_threshold: settings.bot_threshold
+        }),
+      });
+
+      if (!resp.ok) throw new Error(`Server error: ${resp.status}`);
+      const data = await resp.json();
+
+      if (!data.success) {
+        showStatus(data.error || 'Unknown error', false);
+        return;
+      }
+
+      // Persist state for refresh restores (so reload keeps results)
+      sessionStorage.setItem('dashboardState', JSON.stringify({
+        subreddits: subs,
+        analytics: data.analytics || null,
+        per_sub: data.per_sub || null,
+        comparison: data.comparison || null,
+        single: subs.length === 1,
+        timestamp: Date.now()
+      }));
+
+      if (data.url) {
+        sessionStorage.setItem('lastChartURL', data.url);
+      }
+
+      showFrame();
+
+      // Single subreddit: show one dashboard + one iframe
+      if (subs.length === 1 && data.url) {
+        showSingleMode();
+
+        frame.src = data.url + '?v=' + Date.now();
+        showStatus(`Showing r/${subs[0]}`, false);
+
+        if (data.analytics) {
+          updateDashboard(data.analytics);
+        }
+        compareArea.style.display = 'none';
+        multiResults.style.display = 'none';
+      } else {
+        // Multi subreddit: show comparison + per-subreddit blocks
+        showMultiMode();
+        renderComparison(data.comparison);
+        renderMultiResults(data.per_sub || []);
+        showStatus(`Showing ${subs.map(s => `r/${s}`).join(', ')}`, false);
+      }
+
+    } catch (e) {
+      console.error(e);
+      const msg = (e && e.message) ? e.message : String(e);
+      showStatus(`Error: ${msg}`, false);
+    } finally {
+      analyzeBtn.disabled = false;
+      spinner.style.display = 'none';
+    }
+  }
+
+  /* ======================================================================
+     Page initialization:
+     - restore tag selection from localStorage
+     - restore dashboard state from sessionStorage after refresh
+     - wire up dropdown clicks + buttons + PDF export
+     ====================================================================== */
+  window.addEventListener('DOMContentLoaded', () => {
+    // Tags input init
+    loadTags();
+    renderTags();
+
+    subInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ',') {
+        e.preventDefault();
+        parseAndAddFromInput();
+      }
+    });
+
+    subInput.addEventListener('blur', () => {
+      if ((subInput.value || '').trim()) parseAndAddFromInput();
+    });
+
+    // Restore dashboard on refresh (state stored in sessionStorage)
+    const raw = sessionStorage.getItem('dashboardState');
+    if (raw) {
+      try {
+        const state = JSON.parse(raw);
+
+        if (state && Array.isArray(state.subreddits) && state.subreddits.length > 0) {
+          selectedSubs = state.subreddits.map(sanitizeSubreddit).filter(Boolean);
+          persistTags();
+          renderTags();
+
+          showFrame();
+
+          if (state.single && state.subreddits.length === 1) {
+            showSingleMode();
+            window.currentSubreddit = state.subreddits[0];
+
+            const lastURL = sessionStorage.getItem('lastChartURL');
+            if (lastURL) frame.src = lastURL + '?v=' + Date.now();
+
+            if (state.analytics) updateDashboard(state.analytics);
+
+            compareArea.style.display = 'none';
+            multiResults.style.display = 'none';
+            showStatus(`Showing r/${state.subreddits[0]}`, false);
+          } else {
+            showMultiMode();
+            window.currentSubreddit = null;
+
+            renderComparison(state.comparison);
+            renderMultiResults(state.per_sub || []);
+
+            showStatus(`Showing ${state.subreddits.map(s => `r/${s}`).join(', ')}`, false);
+          }
+        } else {
+          showWelcome();
+        }
+      } catch (e) {
+        console.warn('Failed to restore dashboard state', e);
+        showWelcome();
+      }
+    } else {
+      showWelcome();
+    }
+
+    // Analyze dropdown wiring
+    analyzeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleAnalyzeMenu();
+    });
+
+    document.addEventListener('click', () => {
+      if (analyzeMenu) analyzeMenu.style.display = 'none';
+    });
+
+    if (analyzeInclude) {
+      analyzeInclude.addEventListener('click', (e) => {
+        e.stopPropagation();
+        analyzeMenu.style.display = 'none';
+        runAnalysis(false);
+      });
+    }
+
+    if (analyzeNoBots) {
+      analyzeNoBots.addEventListener('click', (e) => {
+        e.stopPropagation();
+        analyzeMenu.style.display = 'none';
+        runAnalysis(true);
+      });
+    }
+
+    if (analyzeWithImages) {
+      analyzeWithImages.addEventListener('click', (e) => {
+        e.stopPropagation();
+        analyzeMenu.style.display = 'none';
+        runAnalysis(false, true);
+      });
+    }
+
+    // Settings button
+    tweakBtn.addEventListener('click', () => {
+      window.location.href = '/settings';
+    });
+
+    // PDF download button (exports selected subreddits via /export?subs=...)
+    const downloadBtn = document.getElementById('downloadReportBtn');
+    if (downloadBtn) {
+      downloadBtn.addEventListener('click', () => {
+        const subs = (selectedSubs || [])
+          .map(s => (s || "").trim())
+          .filter(Boolean);
+
+        if (subs.length === 0) {
+          alert('Please select at least one subreddit first.');
+          return;
+        }
+
+        const query = encodeURIComponent(subs.join(","));
+        window.open(`/export?subs=${query}`, '_blank');
+      });
+    }
+
+  });
+</script>
+
+</body>
+</html>

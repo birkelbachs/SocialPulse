@@ -1,0 +1,317 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>BERTopic Settings</title>
+
+  <!--
+    Shared site styling + responsive meta.
+    - Pulls your global theme (demo.css) so this page matches the rest of the app.
+    - Sets viewport for proper scaling on mobile.
+  -->
+  <link rel="stylesheet" href="/static/demo.css" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+
+  <!--
+    Page-specific styles for settings layout.
+    - Defines spacing/typography for setting rows, hints, and the grid of controls.
+  -->
+  <style>
+    .setting-row { display:block; margin-bottom:14px; }
+    .setting-label { display:block; font-weight:600; margin-bottom:6px; }
+    .hint { display:block; font-size:13px; color:var(--accent-2); margin-top:6px; }
+    .hint b { color:inherit; font-weight:700; }
+    .controls { max-width:1200px; display:grid; gap:12px; }
+    .control-inline { display:flex; gap:8px; align-items:center; }
+    .note { font-size:13px; color:var(--accent-2); margin-top:8px; }
+  </style>
+</head>
+
+<body>
+  <!--
+    Top navigation bar.
+    - Back button uses history if available, otherwise returns to home.
+    - Title text describes the page purpose.
+  -->
+  <header class="topbar">
+    <div class="toolbar">
+      <a href="javascript:void(0)"
+        class="dataset-select"
+        style="text-decoration:none;"
+        onclick="if (window.history.length > 1) { window.history.back(); } else { window.location.href = '/'; }">
+        ← Back
+      </a>
+
+      <h3 style="margin-left:12px;color:var(--accent-2)">Adjust BERTopic hyperparameters</h3>
+    </div>
+  </header>
+
+  <!--
+    Main settings form UI.
+    - Contains fetch mode controls, bot threshold, and BERTopic hyperparameters.
+    - Submit posts JSON to /settings; Reset calls /settings/reset.
+  -->
+  <main class="content">
+    <form id="settingsForm">
+      <div class="controls">
+
+        <!--
+          Fetch mode controls + optional time window.
+          - Two radio buttons: "count" uses limit; "time" ignores limit and uses interval_start/end.
+          - datetime-local inputs are shown here; backend decides how to apply them.
+        -->
+        <div class="setting-row">
+          <span class="setting-label">Fetch mode — how to choose which posts to analyze</span>
+          <div class="control-inline" style="align-items:flex-start; flex-direction:column; gap:4px;">
+            <label>
+              <input type="radio" name="fetch_mode" value="count" id="fetchModeCount" checked>
+              Use a fixed number of recent posts (uses the <b>Limit</b> setting below).
+            </label>
+            <label>
+              <input type="radio" name="fetch_mode" value="time" id="fetchModeTime">
+              Fetch all posts in a time window (ignores <b>Limit</b>).
+            </label>
+
+            <div class="control-inline" style="margin-left:24px; flex-wrap:wrap;">
+              <label for="interval_start">From (UTC):</label>
+              <input type="datetime-local" id="interval_start" name="interval_start">
+
+              <label for="interval_end" style="margin-left:12px;">To (UTC):</label>
+              <input type="datetime-local" id="interval_end" name="interval_end">
+            </div>
+
+            <small class="hint">
+              When using a time window, <b>Limit</b> is ignored. Availability of older posts
+              depends on Reddit’s API and the subreddit’s activity.
+            </small>
+          </div>
+
+          <!--
+            Fetch limit control.
+            - Controls number of posts pulled before modeling (only used in fetch_mode="count").
+          -->
+          <label class="setting-label" for="limit">
+            Limit — how many Reddit posts to fetch
+          </label>
+
+          <div class="control-inline">
+            <input name="limit" id="limit" type="number" min="50" max="2000" value="300"/>
+            <small class="hint"><b>What it does:</b>
+              Controls the number of documents fetched from Reddit before modelling.
+              <b>Higher</b> = more data (slower, better topic coverage);
+              <b>Lower</b> = faster but fewer topics.</small>
+          </div>
+
+          <!--
+            Bot threshold control.
+            - Used by your BotBuster filtering to decide when to classify an account as a bot.
+          -->
+          <div class="setting-row">
+            <label class="setting-label" for="bot_threshold">
+              Bot threshold — classify as bot if botprobability ≥ threshold (0.0–1.0)
+            </label>
+            <div class="control-inline" style="gap:12px; flex-wrap:wrap;">
+              <input name="bot_threshold" id="bot_threshold" type="number" step="0.01" min="0" max="1" value="0.5"/>
+              <small class="hint">
+                <b>What it does:</b> Lower = stricter filtering (more posts removed). Default is <b>0.50</b>.
+              </small>
+            </div>
+          </div>
+
+          <!--
+            Help/intro text for users.
+            - Explains how hyperparameters affect topic granularity and runtime.
+          -->
+          <p class="intro-text">
+            <strong>Hyperparameters</strong> control how BERTopic processes text and
+            groups Reddit posts into themes. Adjusting these settings can improve
+            topic clarity, reduce noise, or make topics more detailed. In general,
+            <strong>higher values</strong> tend to produce fewer, broader topics, while
+            <strong>lower values</strong> produce more numerous and more specific topics.
+            Tip: try a small change (one parameter at a time) and re-run the analysis to see
+            its effect. If you increase <b>limit</b>, expect longer processing time but usually
+            better topic coverage.
+          </p>
+        </div>
+
+        <!--
+          BERTopic hyperparameters.
+          - min_topic_size, min_df, max_df, ngram_range, diversity.
+        -->
+        <div class="setting-row">
+          <label class="setting-label" for="min_topic_size">min_topic_size — minimum documents per topic</label>
+          <div class="control-inline">
+            <input name="min_topic_size" id="min_topic_size" type="number" min="1" max="500" value="2"/>
+            <small class="hint"><b>What it does:</b> Sets the smallest allowed topic (in number of posts). <b>Higher</b> values merge small/rare topics into larger ones (fewer, more robust topics). <b>Lower</b> finds many small/ niche topics (may be noisy).</small>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <label class="setting-label" for="min_df">min_df — CountVectorizer minimum document frequency (int)</label>
+          <div class="control-inline">
+            <input name="min_df" id="min_df" type="number" min="1" max="100" value="5"/>
+            <small class="hint"><b>What it does:</b> Filters out terms that appear in fewer than <em>min_df</em> documents. <b>Higher</b> removes rare words (reduces noise); <b>Lower</b> keeps rarer terms (may create spurious topics).</small>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <label class="setting-label" for="max_df">max_df — CountVectorizer maximum document frequency (0.0–1.0)</label>
+          <div class="control-inline">
+            <input name="max_df" id="max_df" type="number" step="0.01" min="0.01" max="1" value="0.9"/>
+            <small class="hint"><b>What it does:</b> Excludes terms that appear in more than this fraction of documents (common words). <b>Lower</b> values remove very frequent words (helps topic distinctiveness); <b>Higher</b> keeps more frequent terms (may blur topics).</small>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <label class="setting-label" for="ngram_range">ngram_range — n-gram window</label>
+          <div class="control-inline">
+            <select name="ngram_range" id="ngram_range">
+              <option value="1">1 (unigrams)</option>
+              <option value="2">2 (unigrams + bigrams)</option>
+            </select>
+            <small class="hint"><b>What it does:</b> Controls whether to include single words only (1) or also two-word phrases (2). <b>Using bigrams</b> can capture multi-word concepts like “machine learning” but increases feature size.</small>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <label class="setting-label" for="diversity">MMD diversity — Maximal Marginal Relevance (0.0–1.0)</label>
+          <div class="control-inline">
+            <input name="diversity" id="diversity" type="number" step="0.05" min="0" max="1" value="0.3"/>
+            <small class="hint"><b>What it does:</b> Controls diversity in the representation model (0 = less diverse, more repetitive top words; 1 = more diverse, less redundant top words). <b>Higher</b> often gives more varied topic keywords but may reduce cohesion.</small>
+          </div>
+        </div>
+
+        <!--
+          Action buttons + status.
+          - Save triggers POST /settings with JSON body.
+          - Reset triggers POST /settings/reset and reloads the config.
+        -->
+        <div style="display:flex;gap:8px;">
+          <button type="submit" class="dataset-select">Save settings</button>
+          <button id="resetBtn" type="button" class="dataset-select">Reset to defaults</button>
+          <span id="statusMsg" class="status-blue" role="status" aria-live="polite" style="font-weight:bold;"></span>
+        </div>
+
+      </div>
+    </form>
+  </main>
+
+  <!--
+    Settings page logic (load, save, reset).
+    - loadConfig(): GET /settings/config and fills inputs.
+    - submit handler: POST /settings with parsed numeric fields.
+    - reset handler: POST /settings/reset then reload config.
+  -->
+  <script>
+    const form = document.getElementById('settingsForm');
+    function setStatus(text) {
+      const el = document.getElementById('statusMsg');
+      if (el) el.textContent = text;
+    }
+
+    const resetBtn = document.getElementById('resetBtn');
+
+    async function loadConfig() {
+      try {
+        const resp = await fetch('/settings/config');
+        if (!resp.ok) throw new Error('Failed to load config');
+        const json = await resp.json();
+        if (json.success && json.config) {
+          const cfg = json.config;
+
+          // existing hyperparams
+          document.getElementById('limit').value = String(cfg.limit ?? 300);
+          document.getElementById('min_topic_size').value = String(cfg.min_topic_size ?? 2);
+          document.getElementById('min_df').value = String(cfg.min_df ?? 5);
+          document.getElementById('max_df').value = String(cfg.max_df ?? 0.9);
+          document.getElementById('ngram_range').value = String(cfg.ngram_range ?? 2);
+          document.getElementById('diversity').value = String(cfg.diversity ?? 0.3);
+          document.getElementById('bot_threshold').value = String(cfg.bot_threshold ?? 0.5);
+
+          // fetch mode + interval
+          const fetchMode = cfg.fetch_mode || 'count';
+          const fmCount = document.getElementById('fetchModeCount');
+          const fmTime  = document.getElementById('fetchModeTime');
+
+          if (fmCount && fmTime) {
+            if (fetchMode === 'time') {
+              fmTime.checked = true;
+            } else {
+              fmCount.checked = true;
+            }
+          }
+
+          const intervalStart = document.getElementById('interval_start');
+          const intervalEnd   = document.getElementById('interval_end');
+
+          if (intervalStart && cfg.interval_start) {
+            // assume we stored the same format: "YYYY-MM-DDTHH:MM" or ISO string
+            intervalStart.value = cfg.interval_start;
+          }
+          if (intervalEnd && cfg.interval_end) {
+            intervalEnd.value = cfg.interval_end;
+          }
+
+        } else {
+          console.warn('Config fetch returned no config, using defaults');
+        }
+      } catch (e) {
+        console.error('Could not load config:', e);
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', loadConfig);
+
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const data = Object.fromEntries(new FormData(form).entries());
+
+      // normalize numeric fields before sending
+      data.limit = Number(data.limit);
+      data.min_topic_size = Number(data.min_topic_size);
+      data.min_df = Number(data.min_df);
+      data.max_df = Number(data.max_df);
+      data.ngram_range = Number(data.ngram_range);
+      data.diversity = Number(data.diversity);
+      data.bot_threshold = Number(data.bot_threshold);
+
+      document.getElementById('statusMsg').textContent = 'Saving...';
+      try {
+        const resp = await fetch('/settings', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(data)
+        });
+        const json = await resp.json();
+        if (resp.ok && json.success) {
+          document.getElementById('statusMsg').textContent = 'Settings saved.';
+        } else {
+          document.getElementById('statusMsg').textContent = 'Error saving settings';
+        }
+      } catch (err) {
+        setStatus('Network error while saving');
+        console.error(err);
+      }
+    });
+
+    resetBtn.addEventListener('click', async () => {
+      setStatus('Resetting...');
+      try {
+        const resp = await fetch('/settings/reset', { method: 'POST' });
+        const json = await resp.json();
+        if (resp.ok && json.success) {
+          setStatus('Reset to defaults. You can refresh this page.');
+          setTimeout(() => {
+            loadConfig();
+          }, 300);
+        } else {
+          setStatus('Reset error');
+        }
+      } catch (err) {
+        setStatus('Network error while resetting');
+        console.error(err);
+      }
+    });
+  </script>
+</body>
+</html>

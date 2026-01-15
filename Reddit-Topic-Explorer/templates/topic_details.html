@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <!-- Page metadata and stylesheet -->
+  <meta charset="utf-8" />
+  <title>Topic Details</title>
+  <link rel="stylesheet" href="/static/demo.css" />
+</head>
+<body>
+
+<!-- ======================================================
+     Top navigation bar with back button and page title
+     ====================================================== -->
+<header class="topbar">
+  <div class="toolbar">
+    <!-- Back button: returns to referrer if available, otherwise home -->
+    <button
+      type="button"
+      class="dataset-select"
+      style="text-decoration:none;"
+      onclick="if (document.referrer) { history.back(); } else { window.location.href = '/'; }"
+    >
+      ← Back
+    </button>
+
+    <!-- Dynamic page title showing subreddit -->
+    <h3 style="margin-left:12px;color:var(--accent-2)">
+      Topic Details for r/{{ subreddit }}
+    </h3>
+  </div>
+</header>
+
+<!-- ======================================================
+     Main content container (centered, fixed max width)
+     ====================================================== -->
+<main class="content" style="max-width:900px; margin:0 auto;">
+  <div class="card" style="padding:16px; background:var(--bg-2); border-radius:12px;">
+
+    <!-- Topic header (ID + optional name) -->
+    <h2 style="margin-top:0;">
+      Topic {{ topic_id }}
+      {% if topic_name %} — {{ topic_name }}{% endif %}
+    </h2>
+
+    <!-- ==================================================
+         Top keywords for this topic
+         ================================================== -->
+    <h3>Top Keywords</h3>
+    {% if keywords and keywords|length > 0 %}
+      <ul>
+        {% for kw in keywords %}
+          <li>{{ kw }}</li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p>No keywords found for this topic.</p>
+    {% endif %}
+
+    <!-- ==================================================
+         AI-generated topic summary (if available)
+         ================================================== -->
+    {% if summary %}
+      <h3>Topic Summary</h3>
+      <p>{{ summary }}</p>
+    {% else %}
+      <p><em>No summary available.</em></p>
+    {% endif %}
+
+    <!-- ==================================================
+         Topic-level sentiment score (VADER)
+         ================================================== -->
+    <h3 style="margin-bottom:6px;">Topic sentiment (VADER, −1 to 1):</h3>
+    <p class="small" style="margin-top:0;">
+      {{ "%.2f"|format(avg_sentiment) if avg_sentiment is not none else "N/A" }}
+    </p>    
+
+    <!-- ==================================================
+         Representative posts section with toggle buttons
+         ================================================== -->
+    <h3>Representative Posts</h3>
+
+    <!-- Toggle buttons to switch between post selection modes -->
+    <div class="rep-toggle" style="margin-bottom:12px; display:flex; gap:8px; flex-wrap:wrap;">
+      <button class="rep-toggle-btn active" data-target="bertopic">
+        BERTopic chosen
+      </button>
+      <button class="rep-toggle-btn" data-target="score">
+        Top by score
+      </button>
+      <button class="rep-toggle-btn" data-target="comments">
+        Top by comments
+      </button>
+    </div>
+
+    <!-- ==================================================
+         BERTopic-selected representative documents
+         ================================================== -->
+    <div id="rep-bertopic" class="rep-panel" style="display:block;">
+      {% if rep_docs and rep_docs|length > 0 %}
+        <ol style="padding-left: 1.5rem;">
+          {% for doc in rep_docs %}
+            <li style="margin-bottom: 20px;">
+
+              <!-- Post title with optional outbound link -->
+              {% if doc.url %}
+                <a href="{{ doc.url }}" target="_blank" rel="noopener"
+                   style="color: var(--accent-2); text-decoration: underline;">
+                  {{ doc.title }}
+                </a>
+              {% else %}
+                <span style="color: var(--text);">
+                  {{ doc.title }}
+                </span>
+              {% endif %}
+
+              <!-- Post metadata (score and comment count) -->
+              <div style="font-size:12px; opacity:0.75; margin-top:2px;">
+                {% if doc.score is not none %}
+                  {% if doc.relevance_score is not none %} {% endif %}
+                  Score: {{ doc.score }}
+                {% endif %}
+                {% if doc.num_comments is not none %}
+                  · Comments: {{ doc.num_comments }}
+                {% endif %}
+              </div>
+
+              <!-- Optional image preview -->
+              {% if doc.image_url %}
+                <div class="rep-image-wrap">
+                  <img src="{{ doc.image_url }}" alt="Post image"
+                      class="rep-image">
+                </div>
+              {% endif %}
+
+              <!-- Optional post body text -->
+              {% if doc.body %}
+                <pre class="rep-body">
+                  {{ doc.body | safe }}
+                </pre>
+              {% endif %}
+            </li>
+          {% endfor %}
+        </ol>
+      {% else %}
+        <p>No representative docs available for this topic.</p>
+      {% endif %}
+    </div>
+
+    <!-- ==================================================
+         Representative posts ranked by score
+         ================================================== -->
+    <div id="rep-score" class="rep-panel" style="display:none;">
+      {% if rep_top_score and rep_top_score|length > 0 %}
+        <ol style="padding-left: 1.5rem;">
+          {% for doc in rep_top_score %}
+            <li style="margin-bottom: 20px;">
+
+              {% if doc.url %}
+                <a href="{{ doc.url }}" target="_blank" rel="noopener"
+                   style="color: var(--accent-2); text-decoration: underline;">
+                  {{ doc.title }}
+                </a>
+              {% else %}
+                <span style="color: var(--text);">
+                  {{ doc.title }}
+                </span>
+              {% endif %}
+
+              <div style="font-size:12px; opacity:0.75; margin-top:2px;">
+                Score: {{ doc.score }} · Comments: {{ doc.num_comments }}
+              </div>
+
+              {% if doc.image_url %}
+                <div class="rep-image-wrap">
+                  <img src="{{ doc.image_url }}" alt="Post image"
+                      class="rep-image">
+                </div>
+              {% endif %}
+
+              {% if doc.body %}
+                <pre class="rep-body">
+                  {{ doc.body | safe }}
+                </pre>
+              {% endif %}
+            </li>
+          {% endfor %}
+        </ol>
+      {% else %}
+        <p>No high-score posts found for this topic.</p>
+      {% endif %}
+    </div>
+
+    <!-- ==================================================
+         Representative posts ranked by comment count
+         ================================================== -->
+    <div id="rep-comments" class="rep-panel" style="display:none;">
+      {% if rep_top_comments and rep_top_comments|length > 0 %}
+        <ol style="padding-left: 1.5rem;">
+          {% for doc in rep_top_comments %}
+            <li style="margin-bottom: 20px;">
+
+              {% if doc.url %}
+                <a href="{{ doc.url }}" target="_blank" rel="noopener"
+                   style="color: var(--accent-2); text-decoration: underline;">
+                  {{ doc.title }}
+                </a>
+              {% else %}
+                <span style="color: var(--text);">
+                  {{ doc.title }}
+                </span>
+              {% endif %}
+
+              <div style="font-size:12px; opacity:0.75; margin-top:2px;">
+                Score: {{ doc.score }} · Comments: {{ doc.num_comments }}
+              </div>
+
+              {% if doc.image_url %}
+                <div class="rep-image-wrap">
+                  <img src="{{ doc.image_url }}" alt="Post image"
+                      class="rep-image">
+                </div>
+              {% endif %}
+
+              {% if doc.body %}
+                <pre class="rep-body">
+                  {{ doc.body | safe }}
+                </pre>
+              {% endif %}
+            </li>
+          {% endfor %}
+        </ol>
+      {% else %}
+        <p>No high-comment posts found for this topic.</p>
+      {% endif %}
+    </div>
+
+  </div>
+</main>
+
+<!-- ======================================================
+     Client-side toggle logic for representative post panels
+     ====================================================== -->
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    // All toggle buttons
+    const buttons = document.querySelectorAll(".rep-toggle-btn");
+
+    // Map toggle targets to their corresponding panels
+    const panels = {
+      bertopic: document.getElementById("rep-bertopic"),
+      score: document.getElementById("rep-score"),
+      comments: document.getElementById("rep-comments"),
+    };
+
+    // Handle toggle button clicks
+    buttons.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const target = btn.dataset.target;
+
+        // Update active button state
+        buttons.forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+
+        // Show selected panel, hide others
+        Object.entries(panels).forEach(([key, panel]) => {
+          if (!panel) return;
+          panel.style.display = key === target ? "block" : "none";
+        });
+      });
+    });
+  });
+</script>
+</body>
+</html>

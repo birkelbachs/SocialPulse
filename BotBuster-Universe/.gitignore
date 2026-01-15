@@ -1,0 +1,7 @@
+BotBuster_UI/__pycache__/*
+BotBuster_UI/logs/*
+BotBuster_UI/build/*
+BotBuster_UI/dist/*
+BotBuster_UI/temp/*
+.DS_Store
+__pycache__/*

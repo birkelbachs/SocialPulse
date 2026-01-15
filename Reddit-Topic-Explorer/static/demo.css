@@ -1,0 +1,640 @@
+/* ==========================================================================
+   Theme variables (CSS custom properties)
+   Central place to tweak colors used throughout the UI.
+   ========================================================================== */
+   :root {
+    --bg: #0f172a;        /* App background */
+    --panel: #111827;     /* Card/panel background */
+    --text: #e5e7eb;      /* Default text color */
+    --accent: #60a5fa;    /* Primary accent (links, highlights, bars) */
+    --accent-2: #93c5fd;  /* Secondary accent (muted highlights) */
+    --ring: rgba(96, 165, 250, 0.45); /* Focus ring glow */
+}
+
+/* Apply a predictable box model everywhere (padding/border included in width) */
+* { box-sizing: border-box;}
+
+/* Base page reset + global typography + theme background/text */
+html, body {
+    margin: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+}
+
+/* ==========================================================================
+   Top bar / toolbar (sticky header)
+   ========================================================================== */
+.topbar {
+    position: sticky; 
+    top: 0;
+    z-index: 10; 
+    background: linear-gradient(180deg, rgba(0,0,0,0.35), rgba(0,0,0,0)); 
+    padding: 16px 12px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    backdrop-filter: blur(6px); 
+}
+
+/* Row of controls inside the topbar */
+.toolbar {
+    display: flex;
+    align-items:  center;
+    gap: 8px;     
+    flex-wrap: wrap;
+}
+
+/* Input text + caret color to match theme */
+#subInput {
+  color: var(--text);
+  caret-color: var(--text);
+}
+
+/* Muted placeholder styling for readability */
+#subInput::placeholder {
+  color: rgba(148, 163, 184, 0.7);
+}
+
+/* Screen-reader-only helper class (accessible label text) */
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0,0,0,0);
+}
+
+/* Shared styling for inputs/buttons used in the toolbar */
+.dataset-select {
+    appearance: none;
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid #1f2937;
+    padding: 10px 14px;
+    border-radius: 999px; 
+    font-size: 15px;
+    outline: none; 
+}
+
+/* Focus state for keyboard accessibility */
+.dataset-select:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 4px var(--ring);
+}
+
+/* ==========================================================================
+   General layout containers
+   ========================================================================== */
+.content {
+    max-width: 1200px; 
+    margin: 0 auto;
+    padding: 8px;
+}
+
+/* Utility class for “status” text */
+.status-blue {
+    color: var(--accent-2); 
+}
+
+/* ==========================================================================
+   Welcome panel (intro content before analysis)
+   ========================================================================== */
+.welcome-panel {
+    width: 100%;
+    max-width: 100%;
+    padding: 28px;
+    background: var(--panel);
+    border: 5px solid #ffffff; 
+    border-radius: 12px;
+    color: var(--accent-2);   
+    text-align: left;
+    line-height: 1.5;
+  }
+
+/* Welcome panel title */
+  .welcome-panel h2 {
+    margin: 0 0 8px 0;
+    color: var(--accent-2);
+  }
+
+/* Smaller paragraph styling inside welcome panel */
+  .welcome-panel p.small {
+    margin-top: 8px;
+    font-size: 0.9rem;
+    color: var(--accent-2);
+  }
+
+/* Iframe-style plot container (first definition) */
+  .plot-frame { 
+    width: 100%;
+    height: 78vh;
+    border: 0;
+    border-radius: 12px;
+    display: block;
+  }
+  
+
+/* White frame wrapper around the plot (helps contrast against dark bg) */
+.frame-wrap {
+    background: white;
+    border: 1px solid white;
+    border-radius: 12px;
+    padding: 8px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+/* Iframe-style plot container (second definition overrides earlier .plot-frame) */
+.plot-frame {
+    width: 90%;
+    height: 78vh;
+    border: 0;
+    border-radius: 12px;
+    display: block;
+}
+
+/* Intro paragraph text styling */
+.intro-text {
+    font-size: 0.9rem;      
+    color: var(--accent-2);  
+    line-height: 1.6;
+    margin-bottom: 20px;
+  }
+  
+/* Minor spacing tweak for settings page header */
+  .settings-container h1 {
+    margin-bottom: 5px; 
+}
+
+/* Compact title styling inside the toolbar */
+.topbar .toolbar h3 {
+    margin: 0;        
+    padding: 0;        
+    line-height: 1.1;   
+    font-size: 1.2rem; 
+  }
+  
+/* Re-define intro-text spacing (overrides earlier .intro-text margins) */
+  .intro-text {
+    margin-top: 6px;     
+    margin-bottom: 16px; 
+    font-size: 0.9rem;   
+  }
+  
+/* Re-define topbar padding (overrides earlier .topbar padding) */
+  .topbar {
+    padding: 10px 12px;  
+  }
+  
+/* ==========================================================================
+   Analyze dropdown menu styling
+   ========================================================================== */
+  #analyzeMenu {
+    background: var(--panel);   
+    backdrop-filter: none;       
+    border-radius: 6px;
+    border: 1px solid rgba(148,163,184,0.4);
+  }
+
+  /* Dropdown buttons inside the analyze menu */
+  #analyzeMenu button {
+    background-color: var(--panel);
+    color: var(--text);
+    width: 100%;
+    text-align: left;
+    border: none;
+    padding: 6px 10px;
+    cursor: pointer;
+  }
+
+  /* Hover state for dropdown menu items */
+  #analyzeMenu button:hover {
+    background-color: rgba(255,255,255,0.1);
+  }
+
+  /* ==========================================================================
+     Analysis/dashboard area layout
+     ========================================================================== */
+  .analysis-container {
+    width: 100%;
+  }
+  
+  /* Plot iframe sizing for dashboard mode (overrides earlier .plot-frame) */
+  .plot-frame {
+    width: 100%;
+    height: 600px;
+    border: none;
+    display: block;
+  }
+  
+  /* Wrapper spacing for the dashboard */
+  .dashboard {
+    margin-top: 16px;
+    margin-bottom: 16px;
+  }
+  
+  /* Card grid for dashboard stats/tiles */
+  .dash-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); 
+    gap: 12px;
+    margin-top: 12px;
+  }
+  
+  /* Individual dashboard card styling */
+  .dash-card {
+    background: var(--bg-2); 
+    border-radius: 10px;
+    padding: 10px 14px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+  }
+
+  /* Utility to force a grid item to start on a new row */
+  .start-new-row {
+    grid-column: 1;
+  }  
+
+  /* ==========================================================================
+     Cross-subreddit comparison layout
+     - 4 columns total (1/4, 1/4, 1/4, 1/4)
+     - shared links spans 2 columns = right half (1/2)
+     - topic matches goes full-width on next row
+     ========================================================================== */
+
+  /* Comparison grid: 1/4, 1/4, 1/2 */
+#compareArea .cmp-grid{
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+/* Shared links spans the last two columns (right half) */
+#compareArea .cmp-span-2{
+  grid-column: span 2;
+}
+
+/* Topic matches goes to the next row and spans full width */
+#compareArea .cmp-full{
+  grid-column: 1 / -1;
+}
+
+/* Optional: constrain shared links height so it scrolls instead of stretching the row */
+#cmpLinksList{
+  max-height: 240px;
+  overflow: auto;
+  padding-right: 6px;
+}
+  
+  /* ==========================================================================
+     Day-of-week histogram rows (label + bar + count)
+     ========================================================================== */
+  .dow-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 2px 0;
+    font-size: 12px;
+  }
+  
+  /* Short label column (e.g., Mon/Tue/...) */
+  .dow-label {
+    width: 32px;
+    opacity: 0.8;
+  }
+  
+  /* Bar track background */
+  .dow-bar {
+    flex: 1;
+    background: rgba(148, 163, 184, 0.15); 
+    border-radius: 999px;
+    overflow: hidden;
+    height: 6px;
+  }
+  
+  /* Bar fill (width likely set inline via style or JS) */
+  .dow-bar-inner {
+    display: block;         
+    height: 100%;
+    border-radius: inherit;
+    background: var(--accent);   
+  }
+  
+  /* Count column */
+  .dow-count {
+    width: 32px;
+    text-align: right;
+    opacity: 0.8;
+  }
+
+  /* ==========================================================================
+     Report list styling (e.g., generated summaries / top posts list)
+     ========================================================================== */
+  .rep-list {
+    padding-left: 1.2rem;  
+    margin: 0;
+  }
+  
+  /* Space between list items */
+  .rep-item {
+    margin-bottom: 16px;
+  }
+  
+  /* Link styling for report titles */
+  .rep-title-link {
+    font-size: inherit;
+    font-weight: inherit;
+    color: #60a5fa;            
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    border: none;
+    padding: 0;
+    margin: 0;
+  }
+  
+  /* Non-link title text styling (same size/weight as surrounding text) */
+  .rep-title-text {
+    font-size: inherit;
+    font-weight: inherit;
+    color: inherit;
+  }
+  
+  /* Body text styling with preserved line breaks */
+  .rep-body {
+    margin-top: 4px;
+    white-space: pre-wrap; 
+    text-align: left;
+    display: block;
+    font-family: inherit;   
+    font-size: 0.95rem;
+  }
+
+  /* Wrapper around optional image in a report item */
+  .rep-image-wrap {
+    margin-top: 8px;
+  }
+  
+  /* Report image styling */
+  .rep-image {
+    max-width: 100%;
+    border-radius: 8px;
+    display: block;
+  }  
+  
+  /* Toggle button for switching report modes (e.g., with/without filters) */
+  .rep-toggle-btn {
+    border-radius: 999px;
+    padding: 6px 12px;
+    border: 1px solid var(--accent-2);
+    background: transparent;
+    color: var(--accent-2);
+    cursor: pointer;
+    font-size: 0.85rem;
+  }
+  
+  /* Active state for toggle buttons */
+  .rep-toggle-btn.active {
+    background: var(--accent-2);
+    color: #0b1020;
+  }
+  
+/* ==========================================================================
+   Tooltip "info icon" (hover to show explanation text)
+   ========================================================================== */
+.info-icon {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 0.85rem;
+  color: var(--accent-2);
+  cursor: pointer;
+  border-radius: 50%;
+  padding: 1px 4px;
+  transition: background 0.15s ease;
+  position: relative; 
+}
+
+.info-icon:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Tooltip bubble (content pulled from data-tooltip attribute) */
+.info-icon::after {
+  text-align: left;
+  content: attr(data-tooltip); 
+  white-space: normal;
+  font-size: 0.75rem;
+  line-height: 1.2;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid rgba(255,255,255,0.15);
+  padding: 6px 10px;
+  border-radius: 6px;
+  width: 240px;
+
+  position: absolute;
+  left: 22px;
+  top: 0;
+  opacity: 0;           
+  pointer-events: none;  
+
+  transform: translateY(-10px);
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
+  z-index: 20;
+}
+
+/* Reveal tooltip on hover */
+.info-icon:hover::after {
+  opacity: 1;
+  transform: translateY(0px);
+}
+
+/* ==========================================================================
+   Link styling inside the dashboard (consistent visited/unvisited)
+   ========================================================================== */
+.dashboard a:link,
+.dashboard a:visited {
+  color: var(--accent-2);      
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* ==========================================================================
+   Sentiment scale (negative / neutral / positive + beam indicator)
+   ========================================================================== */
+.sentiment-scale {
+  display: grid;
+  grid-template-columns: 1fr 2fr 1fr;
+  align-items: center;
+  gap: 16px;
+}
+
+/* Box for negative/positive values */
+.sentiment-box {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 14px;
+  padding: 16px;
+  text-align: center;
+}
+
+/* Small label inside sentiment boxes */
+.sentiment-box .label {
+  font-size: 14px;
+  opacity: 0.8;
+}
+
+/* Big numeric value */
+.sentiment-box .value {
+  font-size: 28px;
+  font-weight: 700;
+}
+
+/* Center column with neutral/summary text */
+.sentiment-center {
+  text-align: center;
+}
+
+.sentiment-center .neutral {
+  font-size: 14px;
+  opacity: 0.75;
+}
+
+.sentiment-center .summary {
+  font-size: 15px;
+  margin-top: 4px;
+  opacity: 0.9;
+}
+
+/* Beam wrapper used to show a pivot/indicator */
+.beam-wrap {
+  position: relative;
+  height: 50px;
+  margin-top: 14px;
+}
+
+/* The beam line itself */
+.beam {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 220px;
+  height: 4px;
+  background: rgba(255,255,255,0.35);
+  transform-origin: center;
+  translate: -50% -50%;
+  border-radius: 2px;
+}
+
+/* Pivot dot in the center of the beam */
+.beam .pivot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  background: rgba(255,255,255,0.7);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+}
+
+/* Re-define sentiment-scale using grid areas (overrides earlier sentiment-scale rules) */
+.sentiment-scale{
+  display:grid;
+  grid-template-columns: 1fr 2fr 1fr;
+  grid-template-areas:
+    "neg center pos"
+    "beam beam beam";
+  column-gap:16px;
+  row-gap:14px;
+  align-items:center;
+}
+
+/* Map elements into named grid areas */
+.sentiment-box.left { grid-area: neg; }
+.sentiment-center   { grid-area: center; }
+.sentiment-box.right{ grid-area: pos; }
+
+/* Beam row spans full width */
+.sentiment-beam-row{
+  grid-area: beam;
+  display:flex;
+  justify-content:center;
+}
+
+/* Beam wrapper sizing for the row layout */
+.beam-wrap{
+  position:relative;
+  height:36px;
+  width:100%;
+  max-width:520px;   
+}
+
+/* Utility: make a dashboard card span 2 columns in a grid */
+.dash-span-2 {
+  grid-column: span 2;
+}
+
+/* ==========================================================================
+   Histogram panels (two-column layout with canvases)
+   ========================================================================== */
+.hist-grid{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap:12px;
+  margin-top:8px;
+}
+
+/* Panel container for a histogram */
+.hist-panel{
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(148,163,184,0.20);
+  border-radius: 10px;
+  padding: 10px;
+}
+
+/* Small title above each histogram */
+.hist-title{
+  font-size: 12px;
+  opacity: 0.8;
+  margin-bottom: 6px;
+}
+
+/* Canvas should fill the panel width */
+.hist-panel canvas{
+  width: 100%;
+  display:block;
+}
+
+/* ==========================================================================
+   Sentiment color emphasis (red for negative, green for positive)
+   ========================================================================== */
+.sentiment-box.left {
+  background: rgba(220, 38, 38, 0.15);
+  border: 1px solid rgba(220, 38, 38, 0.4);
+  color: #f87171;                   
+}
+
+.sentiment-box.right {
+  background: rgba(34, 197, 94, 0.15); 
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  color: #4ade80;                    
+}
+
+/* Prevent canvas overflow from showing outside rounded corners */
+.hist-panel {
+  overflow: hidden;
+}
+
+/* Standardized canvas height inside histogram panels */
+.hist-panel canvas {
+  display: block;
+  width: 100%;
+  height: 240px; 
+}

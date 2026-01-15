@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+
+  <!--
+    Dynamic <title> for the PDF.
+    - Shows “SocialPulse Report — <subreddit(s)>” depending on whether you passed a single subreddit or a list.
+  -->
+  <title>
+    SocialPulse Report
+    {% if subreddits and subreddits|length %}
+      — {{ subreddits|join(', ') }}
+    {% elif subreddit %}
+      — {{ subreddit }}
+    {% endif %}
+  </title>
+
+  <!--
+    Print/PDF-friendly styles.
+    - Simple, neutral typography for WeasyPrint.
+    - Table-based layout for two/three-column blocks (more reliable in PDF renderers).
+    - Utility styles for callouts, pills, clusters, and page breaks between subreddits.
+  -->
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 13px;
+      color: #111827;
+      margin: 24px;
+    }
+    h1, h2, h3 {
+      margin: 0 0 8px 0;
+    }
+    h1 { font-size: 22px; }
+    h2 { font-size: 16px; margin-top: 4px; }
+    h3 { font-size: 14px; }
+
+    .section {
+      margin-bottom: 20px;
+    }
+    .page-break {
+      page-break-before: always;
+    }
+    .small-muted {
+      font-size: 11px;
+      color: #6b7280;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 6px;
+      font-size: 12px;
+    }
+    th, td {
+      border: 1px solid #e5e7eb;
+      padding: 4px 6px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background-color: #f3f4f6; }
+
+    .two-col {
+      display: table;
+      width: 100%;
+    }
+    .col {
+      display: table-cell;
+      width: 50%;
+      padding-right: 10px;
+    }
+    .col:last-child { padding-right: 0; }
+
+    .pill {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 999px;
+      background: #e5e7eb;
+      font-size: 11px;
+      margin-right: 4px;
+      margin-bottom: 3px;
+    }
+
+    .topic-block {
+      margin-bottom: 12px;
+      border-bottom: 1px solid #e5e7eb;
+      padding-bottom: 8px;
+    }
+
+    .top-post-title { font-weight: 600; }
+    .url-muted {
+      font-size: 11px;
+      color: #6b7280;
+      word-break: break-all;
+    }
+
+    .callout {
+      border: 1px solid #e5e7eb;
+      background: #fafafa;
+      padding: 10px 12px;
+      border-radius: 8px;
+      margin-top: 8px;
+    }
+
+    .kpi-grid {
+      display: table;
+      width: 100%;
+      border-spacing: 10px 8px;
+    }
+    .kpi {
+      display: table-cell;
+      width: 33.33%;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 10px 12px;
+      vertical-align: top;
+    }
+    .kpi .label { font-size: 11px; color: #6b7280; }
+    .kpi .value { font-size: 16px; font-weight: 700; margin-top: 2px; }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+      font-size: 12px;
+    }
+
+    a { color: #111827; text-decoration: underline; }
+    a:visited { color: #111827; }
+
+    .dup-cluster {
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin-top: 8px;
+    }
+
+    .dup-meta {
+      font-size: 11px;
+      color: #6b7280;
+      margin-top: 4px;
+    }
+
+    .dup-post {
+      margin: 6px 0;
+    }
+
+    .dup-post .title {
+      font-weight: 600;
+    }
+
+    .dup-post .sub {
+      font-size: 11px;
+      color: #6b7280;
+      margin-left: 6px;
+    }
+
+    hr.light {
+      border: 0;
+      border-top: 1px solid #e5e7eb;
+      margin: 8px 0;
+    }
+
+  </style>
+</head>
+
+<body>
+
+  <!--
+    Report header + subreddit(s) badges.
+    - Shows either a pill list of subreddits or a single subreddit label.
+  -->
+  <h1>SocialPulse Report</h1>
+
+  {% if subreddits and subreddits|length %}
+    <p class="small-muted">
+      Subreddits:
+      {% for s in subreddits %}
+        <span class="pill">r/{{ s }}</span>
+      {% endfor %}
+    </p>
+  {% elif subreddit %}
+    <p class="small-muted">Subreddit: r/{{ subreddit }}</p>
+  {% endif %}
+
+  <!--
+    1) Cross-subreddit comparison (ONLY when >=2 subreddits and comparison exists).
+    - Renders overlap users, shared links, duplicates (exact/near), and top topic matches.
+    - This block appears FIRST in the report for multi-subreddit exports.
+  -->
+  {% if subreddits and subreddits|length >= 2 and comparison %}
+    <div class="section">
+      <h2>Cross-subreddit Comparison</h2>
+      <p class="small-muted">
+        Overlap in users, shared links, duplicate posts, and topic similarity (heuristic).
+      </p>
+
+      <!--
+        Safe dict extraction (avoid missing keys crashing template).
+        - u/l/t/d are nested objects inside comparison.
+      -->
+      {% set u = comparison.users if comparison.users else {} %}
+      {% set l = comparison.shared_links if comparison.shared_links else {} %}
+      {% set t = comparison.topic_similarity if comparison.topic_similarity else {} %}
+      {% set d = comparison.duplicates if comparison.duplicates else {} %}
+
+      <!-- Overlapping users summary -->
+      <h3>Overlapping users</h3>
+      <p>
+        <strong>Overlap:</strong> {{ u.intersection_count or 0 }} overlapping users ·
+        {{ u.union_count or 0 }} total unique users
+      </p>
+
+      <!-- Top overlapping users table -->
+      <h3>Top overlapping users</h3>
+      {% if u.top_overlapping_users %}
+        <table>
+          <tr><th>User</th><th>Posts by subreddit</th><th>Total</th><th>Profile</th></tr>
+          {% for r in u.top_overlapping_users[:10] %}
+            <tr>
+              <td>u/{{ r.user }}</td>
+              <td>
+                {% if r.by_subreddit %}
+                  {% for k, v in r.by_subreddit.items() %}
+                    r/{{ k }}: {{ v }}{% if not loop.last %} · {% endif %}
+                  {% endfor %}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td>{{ r.total_posts_across_selected }}</td>
+              <td class="url-muted">{% if r.url %}{{ r.url }}{% else %}—{% endif %}</td>
+            </tr>
+          {% endfor %}
+        </table>
+      {% else %}
+        <p>—</p>
+      {% endif %}
+
+      <!-- Shared links table -->
+      <h3>Shared links</h3>
+      <p><strong>Shared URL count:</strong> {{ l.shared_url_count or 0 }}</p>
+      {% if l.top_shared_urls %}
+        <table>
+          <tr><th>URL</th></tr>
+          {% for x in l.top_shared_urls[:30] %}
+            <tr><td class="url-muted">{{ x.url }}</td></tr>
+          {% endfor %}
+        </table>
+      {% else %}
+        <p>No shared links found.</p>
+      {% endif %}
+
+      <!--
+        Duplicate posts summary + exact clusters with clickable post links.
+        - exact_clusters and near_clusters are both shown in counts,
+          but only exact clusters are expanded here (up to 10 clusters).
+      -->
+      <h3>Duplicate posts</h3>
+      {% set exact = d.exact_clusters if d.exact_clusters else [] %}
+      {% set near  = d.near_clusters if d.near_clusters else [] %}
+
+      <p>
+        <strong>Clusters:</strong> {{ exact|length }} exact · {{ near|length }} near
+      </p>
+
+      {% if exact and exact|length %}
+        <h3>Exact duplicate matches (with links)</h3>
+        <p class="small-muted">
+          Showing up to 10 clusters; up to 8 posts per cluster.
+        </p>
+
+        {% for c in exact[:10] %}
+          <div class="dup-cluster">
+            <div>
+              <strong>Exact cluster {{ loop.index }}</strong>
+              <span class="small-muted">
+                · {{ c.post_count }} posts
+                · subreddits: {{ (c.subreddits or [])|join(', ') }}
+              </span>
+            </div>
+
+            {% if c.spread_minutes is not none %}
+              <div class="dup-meta">Time spread: {{ c.spread_minutes }} minutes</div>
+            {% endif %}
+
+            {% if c.canonical_text %}
+              <div class="dup-meta">Canonical text: <span class="mono">{{ c.canonical_text }}</span></div>
+            {% endif %}
+
+            <hr class="light">
+
+            {% if c.posts %}
+              {% for p in c.posts[:8] %}
+                <div class="dup-post">
+                  {% set link = p.permalink or p.url %}
+                  {% if link %}
+                    <div class="title">
+                      <a href="{{ link }}">{{ p.title or '(no title)' }}</a>
+                      <span class="sub">r/{{ p.subreddit }}</span>
+                    </div>
+                    <div class="url-muted">{{ link }}</div>
+                  {% else %}
+                    <div class="title">{{ p.title or '(no title)' }} <span class="sub">r/{{ p.subreddit }}</span></div>
+                  {% endif %}
+                </div>
+              {% endfor %}
+            {% else %}
+              <div class="small-muted">No posts attached to this cluster.</div>
+            {% endif %}
+          </div>
+        {% endfor %}
+      {% else %}
+        <p class="small-muted">No exact duplicate clusters found across the selected subreddits.</p>
+      {% endif %}
+
+      <!--
+        Top topic matches (heuristic).
+        - Shows up to 5 topic matches, with keywords for each side.
+        - Optionally prints example URLs for each subreddit topic.
+      -->
+      <h3>Top topic matches</h3>
+      {% if t.top_matches %}
+        {% for m in t.top_matches[:5] %}
+          <div class="callout">
+            <div>
+              <strong>r/{{ m.sub_a }}</strong>: {{ m.topic_a }}
+              ↔
+              <strong>r/{{ m.sub_b }}</strong>: {{ m.topic_b }}
+              <span class="small-muted">(keyword overlap {{ m.keyword_jaccard }})</span>
+            </div>
+            <div class="small-muted">A: {{ (m.keywords_a or [])|join(', ') }}</div>
+            <div class="small-muted">B: {{ (m.keywords_b or [])|join(', ') }}</div>
+
+            {% if m.example_post_a and m.example_post_a.url %}
+              <div class="url-muted">Example A: {{ m.example_post_a.url }}</div>
+            {% endif %}
+            {% if m.example_post_b and m.example_post_b.url %}
+              <div class="url-muted">Example B: {{ m.example_post_b.url }}</div>
+            {% endif %}
+          </div>
+        {% endfor %}
+      {% else %}
+        <p>—</p>
+      {% endif %}
+
+    </div>
+  {% endif %}
+
+  <!--
+    ) Per-subreddit report sections (repeated for each subreddit in per_sub).
+    - Each subreddit gets its own dashboard-like summary, plus chart image and top topics.
+    - Page breaks between subreddits for clean PDF pagination.
+  -->
+  {% if per_sub and per_sub|length %}
+    {% for item in per_sub %}
+      {% set sr = item.subreddit %}
+      {% set analytics = item.analytics %}
+      {% set top_topics = item.top_topics %}
+      {% set subreddit_summary = item.subreddit_summary %}
+      {% set chart_image_url = item.chart_image_url %}
+
+      <!-- Page break between subreddits (but not before the first one) -->
+      {% if not loop.first %}
+        <div class="page-break"></div>
+      {% endif %}
+
+      <!--
+        Subreddit header + per-subreddit error callout.
+        - If backend stored an error for this subreddit, it is printed here.
+      -->
+      <div class="section">
+        <h2>Subreddit Dashboard — r/{{ sr }}</h2>
+        {% if item.error %}
+          <div class="callout">
+            <strong>Error analyzing r/{{ sr }}:</strong>
+            <div class="small-muted">{{ item.error }}</div>
+          </div>
+        {% endif %}
+      </div>
+
+      <!--
+        Overview (AI summary + totals + time range).
+        - Uses analytics.subreddit_summary if available; falls back to item.subreddit_summary.
+        - Shows totals and optional time_range pretty strings.
+      -->
+      <div class="section">
+        <h2>Subreddit Overview (AI)</h2>
+        {% set summary = (analytics.subreddit_summary if analytics and analytics.subreddit_summary else subreddit_summary) %}
+        {% if summary %}
+          <p style="white-space:pre-wrap; line-height:1.4;">{{ summary }}</p>
+        {% else %}
+          <p>No AI overview available.</p>
+        {% endif %}
+
+        {% if analytics %}
+          <p>
+            <strong>Total posts analyzed:</strong> {{ analytics.total_posts }}<br>
+            {% if analytics.original_total_posts is not none and analytics.original_total_posts != analytics.total_posts %}
+              <strong>Original fetched posts:</strong> {{ analytics.original_total_posts }}<br>
+            {% endif %}
+          </p>
+
+          {% if analytics.time_range and analytics.time_range.min_pretty and analytics.time_range.max_pretty %}
+            <p class="small-muted">
+              Time range of fetched posts (UTC):
+              {{ analytics.time_range.min_pretty }} — {{ analytics.time_range.max_pretty }}
+            </p>
+          {% endif %}
+        {% else %}
+          <p class="small-muted">No analytics returned for this subreddit.</p>
+        {% endif %}
+      </div>
+
+      <!--
+        Analysis mode (standard vs bot filtering vs image-aware).
+        - Prints a short explanation based on analytics flags.
+      -->
+      <div class="section">
+        <h2>Analysis Mode</h2>
+        <div class="callout">
+          {% if analytics and analytics.image_augmentation_active %}
+            <strong>Image-aware mode ON</strong><br>
+            <span class="small-muted">
+              Posts with images were given short AI-generated descriptions before BERTopic,
+              so topics/keywords may reflect both text and image content.
+            </span>
+          {% elif analytics and analytics.bot_filter_active %}
+            <strong>Bot filtering ON</strong><br>
+            {% set orig = (analytics.original_total_posts if analytics.original_total_posts is not none else analytics.total_posts) %}
+            {% set out = (analytics.bots_filtered_out if analytics.bots_filtered_out is not none else 0) %}
+            <span class="small-muted">
+              Removed {{ out }} suspected bot posts out of {{ orig }}.
+              All stats below use the remaining {{ analytics.total_posts }} posts.
+            </span>
+          {% else %}
+            <strong>Standard analysis</strong><br>
+            <span class="small-muted">All fetched posts were included.</span>
+          {% endif %}
+        </div>
+      </div>
+
+      <!--
+        KPI snapshot + two-column block (subreddit stats + activity).
+        - KPIs: avg_score, avg_comments, avg_post_length.
+        - Shows subscribers (if subreddit_info exists).
+        - Shows recent activity counts + most active hour (UTC).
+      -->
+      <div class="section">
+        <h2>Analytics Snapshot</h2>
+
+        {% if analytics %}
+          <div class="kpi-grid">
+            <div class="kpi">
+              <div class="label">Avg Reddit index (upvotes − downvotes)</div>
+              <div class="value">
+                {% if analytics.avg_score is not none %}{{ analytics.avg_score|round(1) }}{% else %}—{% endif %}
+              </div>
+            </div>
+            <div class="kpi">
+              <div class="label">Avg comments</div>
+              <div class="value">
+                {% if analytics.avg_comments is not none %}{{ analytics.avg_comments|round(1) }}{% else %}—{% endif %}
+              </div>
+            </div>
+            <div class="kpi">
+              <div class="label">Avg post length</div>
+              <div class="value">
+                {% if analytics.avg_post_length is not none %}{{ analytics.avg_post_length|round(0) }} chars{% else %}—{% endif %}
+              </div>
+            </div>
+          </div>
+
+          <div class="two-col" style="margin-top:10px;">
+            <div class="col">
+              <h3>Subreddit Stats</h3>
+              {% set info = analytics.subreddit_info %}
+              {% if info %}
+                <p>
+                  <strong>Subscribers:</strong>
+                  {% if info.subscribers is not none %}
+                    {{ "{:,}".format(info.subscribers) }}
+                  {% else %}
+                    Unavailable
+                  {% endif %}
+                </p>
+              {% else %}
+                <p>Subreddit statistics unavailable (failed to fetch /about).</p>
+              {% endif %}
+            </div>
+
+            <div class="col">
+              <h3>Activity</h3>
+              <p>
+                <strong>Recent activity:</strong> {{ analytics.posts_last_day }} posts (24h) · {{ analytics.posts_last_week }} posts (7d)<br>
+                <strong>Most active hour (UTC):</strong>
+                {% if analytics.most_active_hour_utc is not none %}
+                  {% set h = analytics.most_active_hour_utc %}
+                  {% set h_end = (h + 1) % 24 %}
+                  {{ "%02d"|format(h) }}:00–{{ "%02d"|format(h_end) }}:00
+                {% else %}
+                  —
+                {% endif %}
+              </p>
+            </div>
+          </div>
+        {% else %}
+          <p class="small-muted">No snapshot available.</p>
+        {% endif %}
+      </div>
+
+      <!--
+        Sentiment table (VADER histogram).
+        - Shows neg/neu/pos counts and a quick definition reminder.
+      -->
+      <div class="section">
+        <h2>Sentiment of Fetched Posts (VADER)</h2>
+        {% if analytics and analytics.sentiment_hist %}
+          {% set sh = analytics.sentiment_hist %}
+          {% set neg = (sh.neg if sh.neg is not none else 0) %}
+          {% set neu = (sh.neu if sh.neu is not none else 0) %}
+          {% set pos = (sh.pos if sh.pos is not none else 0) %}
+          {% set total_sent = neg + neu + pos %}
+          <table>
+            <tr><th>Negative</th><th>Neutral</th><th>Positive</th><th>Total</th></tr>
+            <tr>
+              <td>{{ neg }}</td><td>{{ neu }}</td><td>{{ pos }}</td><td>{{ total_sent }}</td>
+            </tr>
+          </table>
+          <p class="small-muted">
+            Negative &lt; −0.05, Positive &gt; 0.05, Neutral otherwise (based on title+text).
+          </p>
+        {% else %}
+          <p>No sentiment data available.</p>
+        {% endif %}
+      </div>
+
+      <!--
+        Activity by day of week table.
+        - Lists day and count for the fetched-post window.
+      -->
+      <div class="section">
+        <h2>Activity by Day of Week</h2>
+        {% if analytics and analytics.dow_counts %}
+          <table>
+            <tr><th>Day</th><th>Post count</th></tr>
+            {% for d in analytics.dow_counts %}
+              <tr><td>{{ d.day }}</td><td>{{ d.count }}</td></tr>
+            {% endfor %}
+          </table>
+          <p class="small-muted">
+            Counts reflect posts fetched during this run; they may over-represent days close to the analysis time.
+          </p>
+        {% else %}
+          <p>No day-of-week activity data available.</p>
+        {% endif %}
+      </div>
+
+      <!--
+        Observers vs Social Spammers.
+        - Top users table (with profile URLs).
+        - User posting-rate buckets table (histogram buckets).
+      -->
+      <div class="section">
+        <h2>Observers vs Social Spammers</h2>
+
+        <h3>Top users (most active in this window)</h3>
+        {% if analytics and analytics.top_users %}
+          <table>
+            <tr><th>#</th><th>User</th><th>Activity</th><th>Profile</th></tr>
+            {% for u in analytics.top_users %}
+              <tr>
+                <td>{{ loop.index }}</td>
+                <td>u/{{ u.name }}</td>
+                <td>
+                  {% if u.posts_per_week is not none %}
+                    {{ u.posts_per_week|round(1) }} posts/week
+                  {% elif u.post_count is not none %}
+                    {{ u.post_count }} posts
+                  {% else %}
+                    —
+                  {% endif %}
+                </td>
+                <td class="url-muted">{% if u.url %}{{ u.url }}{% else %}—{% endif %}</td>
+              </tr>
+            {% endfor %}
+          </table>
+        {% else %}
+          <p>No user activity data available for this run.</p>
+        {% endif %}
+
+        <h3>User posting-rate buckets (histogram table)</h3>
+        {% if analytics and analytics.user_freq_buckets %}
+          <table>
+            <tr><th>Bucket</th><th># users</th></tr>
+            {% for b in analytics.user_freq_buckets %}
+              <tr>
+                <td class="mono">{{ b.bucket }}</td>
+                <td>{{ b.user_count }}</td>
+              </tr>
+            {% endfor %}
+          </table>
+        {% else %}
+          <p>No bucketed user frequency data available.</p>
+        {% endif %}
+      </div>
+
+      <!--
+        Top posts table (by score).
+        - Uses analytics.top_posts if provided.
+      -->
+      <div class="section">
+        <h2>Top Posts (by score)</h2>
+        {% if analytics and analytics.top_posts %}
+          <table>
+            <tr><th>#</th><th>Title</th><th>Score</th><th>URL</th></tr>
+            {% for p in analytics.top_posts %}
+              <tr>
+                <td>{{ loop.index }}</td>
+                <td class="top-post-title">{{ p.title }}</td>
+                <td>{{ p.score }}</td>
+                <td class="url-muted">{% if p.url %}{{ p.url }}{% else %}—{% endif %}</td>
+              </tr>
+            {% endfor %}
+          </table>
+        {% else %}
+          <p>No top post data available.</p>
+        {% endif %}
+      </div>
+
+      <!--
+        Current hyperparameters table.
+        - Prints config dict (key/value) passed into the template.
+      -->
+      <div class="section">
+        <h2>Current Hyperparameters</h2>
+        {% if config %}
+          <table>
+            <tr><th>Parameter</th><th>Value</th></tr>
+            {% for key, value in config.items() %}
+              <tr><td>{{ key }}</td><td>{{ value }}</td></tr>
+            {% endfor %}
+          </table>
+        {% else %}
+          <p>No config parameters provided.</p>
+        {% endif %}
+      </div>
+
+      <!--
+        Static BERTopic chart snapshot.
+        - chart_image_url should be a file URL/path served by your export route.
+      -->
+      <div class="section">
+        <h2>Top Topics Bar Chart</h2>
+        {% if chart_image_url %}
+          <img src="{{ chart_image_url }}"
+               alt="Top topics bar chart"
+               style="max-width:100%; border:1px solid #e5e7eb; border-radius:4px; margin-top:6px;">
+          <p class="small-muted">
+            Static snapshot of the interactive BERTopic bar chart used on the web dashboard.
+          </p>
+        {% else %}
+          <p>No chart image available.</p>
+        {% endif %}
+      </div>
+
+      <!--
+        Top topics list.
+        - For each topic: shows id/name, keyword pills, and first representative post (title + optional URL).
+      -->
+      <div class="section">
+        <h2>Top Topics</h2>
+        {% if top_topics %}
+          {% for t in top_topics %}
+            <div class="topic-block">
+              <h3>Topic {{ t.topic_id }} — {{ t.topic_name }}</h3>
+
+              {% if t.keywords %}
+                <p>
+                  <strong>Keywords:</strong>
+                  {% for kw in t.keywords %}
+                    <span class="pill">{{ kw }}</span>
+                  {% endfor %}
+                </p>
+              {% endif %}
+
+              {% set first_doc = (t.rep_docs[0] if t.rep_docs else None) %}
+              {% if first_doc %}
+                <p><strong>Representative post:</strong> {{ first_doc.title }}</p>
+                {% if first_doc.url %}
+                  <p class="url-muted">URL: {{ first_doc.url }}</p>
+                {% endif %}
+              {% endif %}
+            </div>
+          {% endfor %}
+        {% else %}
+          <p>No topic summary available.</p>
+        {% endif %}
+      </div>
+
+      <!-- Per-subreddit footer -->
+      <p class="small-muted">
+        Subreddit section generated from public Reddit data and BERTopic analysis.
+      </p>
+
+    {% endfor %}
+  {% else %}
+    <!--
+      Empty-state fallback (if per_sub isn’t passed or is empty).
+    -->
+    <div class="section">
+      <p>No per-subreddit results were provided to the template (per_sub is empty).</p>
+    </div>
+  {% endif %}
+
+  <!--
+    Report footer.
+  -->
+  <p class="small-muted">
+    Report generated automatically from public Reddit data and BERTopic analysis.
+  </p>
+
+</body>
+</html>

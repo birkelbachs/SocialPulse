@@ -1,0 +1,1 @@
+{"limit": 300, "min_topic_size": 2, "min_df": 5, "max_df": 0.8, "ngram_range": 2, "diversity": 0.3, "fetch_mode": "count", "interval_start": "2026-01-05T17:00", "interval_end": "2026-01-12T17:00", "bot_threshold": 0.5}
