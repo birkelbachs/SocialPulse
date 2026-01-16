@@ -190,7 +190,7 @@ If you use SocialPulse in academic work, please also cite BotBuster:
 If you use this code, please use the following citation:
 
 ```bibtex
-@inproceedings{teleki2025zscores,
+@inproceedings{birkelbach2025socialpulse,
   title={SocialPulse: An Open-Source Subreddit Sensemaking Toolkit},
   author={Birkelbach, Stephanie and Teleki, Maria and Carragher, Peter and Dong, Xiangjue and Bhatnagar, Nehul and Caverlee, James},
   year={2025},
